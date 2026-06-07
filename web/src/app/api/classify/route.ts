@@ -76,7 +76,20 @@ export async function POST(request: NextRequest) {
       imageDescription: p.imageDescription,
     }));
 
-    const result = await classifyProblems(classifierInput, lesson.title);
+    const conceptLibrary = await db()
+      .select({
+        name: concepts.name,
+        displayName: concepts.displayName,
+        category: concepts.category,
+        description: concepts.description,
+      })
+      .from(concepts);
+
+    const result = await classifyProblems(
+      classifierInput,
+      lesson.title,
+      conceptLibrary
+    );
 
     const conceptNames = result.concepts.map((c) => c.name);
     const existingConcepts =

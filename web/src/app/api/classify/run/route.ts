@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { db } from "@/lib/db/client";
+import { concepts } from "@/lib/db/schema";
 import { validateApiKey } from "@/lib/auth";
 import { classifyProblems } from "@/lib/claude/classify";
 
@@ -44,6 +46,19 @@ export async function POST(request: NextRequest) {
     imageDescription: p.imageDescription ?? null,
   }));
 
-  const result = await classifyProblems(input, parsed.data.lessonTitle);
+  const conceptLibrary = await db()
+    .select({
+      name: concepts.name,
+      displayName: concepts.displayName,
+      category: concepts.category,
+      description: concepts.description,
+    })
+    .from(concepts);
+
+  const result = await classifyProblems(
+    input,
+    parsed.data.lessonTitle,
+    conceptLibrary
+  );
   return NextResponse.json(result);
 }
