@@ -36,6 +36,7 @@ export async function GET(
     conceptName: string;
     conceptDisplayName: string;
     conceptCategory: string;
+    conceptDescription: string | null;
   }> = [];
 
   if (problemIds.length > 0) {
@@ -47,6 +48,7 @@ export async function GET(
         conceptName: concepts.name,
         conceptDisplayName: concepts.displayName,
         conceptCategory: concepts.category,
+        conceptDescription: concepts.description,
       })
       .from(problemConcepts)
       .innerJoin(concepts, eq(problemConcepts.conceptId, concepts.id));
@@ -61,6 +63,7 @@ export async function GET(
         name: m.conceptName,
         displayName: m.conceptDisplayName,
         category: m.conceptCategory,
+        description: m.conceptDescription,
         confidence: m.confidence,
       })),
   }));

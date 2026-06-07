@@ -18,6 +18,7 @@ type Concept = {
   name: string;
   displayName: string;
   category: string;
+  description: string | null;
   confidence: number;
 };
 
@@ -134,11 +135,21 @@ export default function LessonDetailPage() {
         {lesson.classificationStatus === "completed" && allConcepts.length > 0 && (
           <GenerateWorksheetDialog
             lessonId={lesson.id}
-            concepts={allConcepts.map((c) => ({
-              id: c.id,
-              displayName: c.displayName,
-              category: c.category,
-            }))}
+            concepts={allConcepts.map((c) => {
+              const tagged = problems.filter((p) =>
+                p.concepts.some((pc) => pc.id === c.id)
+              );
+              return {
+                id: c.id,
+                displayName: c.displayName,
+                category: c.category,
+                description: c.description,
+                problemCount: tagged.length,
+                // Up to 2 example problem texts — gives the user enough
+                // context to recognize the concept without overwhelming.
+                exampleProblems: tagged.slice(0, 2).map((p) => p.problemText),
+              };
+            })}
           />
         )}
       </header>
