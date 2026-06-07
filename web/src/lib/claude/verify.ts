@@ -1,4 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { llmSpan } from "@/lib/otel/tracer";
+
+const MODEL = "claude-opus-4-6";
 
 export type VerifyInput = {
   problemText: string;
@@ -69,23 +72,41 @@ export async function verifyProblem(input: VerifyInput): Promise<VerifyResult> {
     "Solve this problem independently and return your answer.",
   ].join("\n");
 
-  const response = await client.messages.create({
-    model: "claude-opus-4-6",
-    max_tokens: 16000,
-    thinking: { type: "adaptive" },
-    system: SYSTEM_PROMPT,
-    messages: [{ role: "user", content: userPrompt }],
-    output_config: {
-      format: { type: "json_schema", schema: OUTPUT_SCHEMA },
+  const solved = await llmSpan(
+    "mathesis.verify.solve",
+    {
+      model: MODEL,
+      systemPrompt: SYSTEM_PROMPT,
+      messages: [{ role: "user", content: userPrompt }],
     },
-  });
+    async () => {
+      const response = await client.messages.create({
+        model: MODEL,
+        max_tokens: 16000,
+        thinking: { type: "adaptive" },
+        system: SYSTEM_PROMPT,
+        messages: [{ role: "user", content: userPrompt }],
+        output_config: {
+          format: { type: "json_schema", schema: OUTPUT_SCHEMA },
+        },
+      });
 
-  const textBlock = response.content.find((b) => b.type === "text");
-  if (!textBlock || textBlock.type !== "text") {
-    throw new Error("Verifier returned no text block");
-  }
+      const textBlock = response.content.find((b) => b.type === "text");
+      if (!textBlock || textBlock.type !== "text") {
+        throw new Error("Verifier returned no text block");
+      }
 
-  const solved = JSON.parse(textBlock.text) as SolveResponse;
+      const parsed = JSON.parse(textBlock.text) as SolveResponse;
+      return {
+        result: parsed,
+        output: {
+          responseText: textBlock.text,
+          inputTokens: response.usage.input_tokens,
+          outputTokens: response.usage.output_tokens,
+        },
+      };
+    }
+  );
 
   const normalizedExpected = normalizeAnswer(input.expectedAnswer);
   const normalizedIndependent = normalizeAnswer(solved.answer);

@@ -1,4 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { llmSpan } from "@/lib/otel/tracer";
+
+const MODEL = "claude-opus-4-6";
 
 export type GeneratorInputConcept = {
   id: number;
@@ -171,22 +174,40 @@ export async function generateProblems(args: {
     `Generate exactly ${count} problems following the guidelines.`,
   ].join("\n");
 
-  const stream = client.messages.stream({
-    model: "claude-opus-4-6",
-    max_tokens: 64000,
-    thinking: { type: "adaptive" },
-    system: SYSTEM_PROMPT,
-    messages: [{ role: "user", content: userPrompt }],
-    output_config: {
-      format: { type: "json_schema", schema: OUTPUT_SCHEMA },
+  return llmSpan(
+    "mathesis.generate.problems",
+    {
+      model: MODEL,
+      systemPrompt: SYSTEM_PROMPT,
+      messages: [{ role: "user", content: userPrompt }],
     },
-  });
-  const response = await stream.finalMessage();
+    async () => {
+      const stream = client.messages.stream({
+        model: MODEL,
+        max_tokens: 64000,
+        thinking: { type: "adaptive" },
+        system: SYSTEM_PROMPT,
+        messages: [{ role: "user", content: userPrompt }],
+        output_config: {
+          format: { type: "json_schema", schema: OUTPUT_SCHEMA },
+        },
+      });
+      const response = await stream.finalMessage();
 
-  const textBlock = response.content.find((b) => b.type === "text");
-  if (!textBlock || textBlock.type !== "text") {
-    throw new Error("Generator returned no text block");
-  }
+      const textBlock = response.content.find((b) => b.type === "text");
+      if (!textBlock || textBlock.type !== "text") {
+        throw new Error("Generator returned no text block");
+      }
 
-  return JSON.parse(textBlock.text) as GeneratorResult;
+      const parsed = JSON.parse(textBlock.text) as GeneratorResult;
+      return {
+        result: parsed,
+        output: {
+          responseText: textBlock.text,
+          inputTokens: response.usage.input_tokens,
+          outputTokens: response.usage.output_tokens,
+        },
+      };
+    }
+  );
 }

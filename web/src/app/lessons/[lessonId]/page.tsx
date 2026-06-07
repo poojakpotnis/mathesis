@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import { GenerateWorksheetDialog } from "@/components/generate-worksheet-dialog";
 import {
   ArrowLeft,
   ImageIcon,
@@ -103,31 +104,43 @@ export default function LessonDetailPage() {
         All Lessons
       </Link>
 
-      <header className="mb-8">
-        <h2
-          className="text-3xl tracking-tight text-foreground"
-          style={{ fontFamily: "var(--font-heading)" }}
-        >
-          {lesson.title}
-        </h2>
-        <div className="flex items-center gap-4 mt-3 text-sm text-muted-foreground">
-          <span className="flex items-center gap-1.5">
-            <FileText className="w-4 h-4" />
-            {textProblems.length} text problems
-          </span>
-          {imageProblems.length > 0 && (
+      <header className="mb-8 flex items-start justify-between gap-6">
+        <div>
+          <h2
+            className="text-3xl tracking-tight text-foreground"
+            style={{ fontFamily: "var(--font-heading)" }}
+          >
+            {lesson.title}
+          </h2>
+          <div className="flex items-center gap-4 mt-3 text-sm text-muted-foreground">
             <span className="flex items-center gap-1.5">
-              <ImageIcon className="w-4 h-4" />
-              {imageProblems.length} image problems (skipped for generation)
+              <FileText className="w-4 h-4" />
+              {textProblems.length} text problems
             </span>
-          )}
-          {allConcepts.length > 0 && (
-            <span className="flex items-center gap-1.5">
-              <Sparkles className="w-4 h-4" />
-              {allConcepts.length} concepts identified
-            </span>
-          )}
+            {imageProblems.length > 0 && (
+              <span className="flex items-center gap-1.5">
+                <ImageIcon className="w-4 h-4" />
+                {imageProblems.length} image problems (skipped for generation)
+              </span>
+            )}
+            {allConcepts.length > 0 && (
+              <span className="flex items-center gap-1.5">
+                <Sparkles className="w-4 h-4" />
+                {allConcepts.length} concepts identified
+              </span>
+            )}
+          </div>
         </div>
+        {lesson.classificationStatus === "completed" && allConcepts.length > 0 && (
+          <GenerateWorksheetDialog
+            lessonId={lesson.id}
+            concepts={allConcepts.map((c) => ({
+              id: c.id,
+              displayName: c.displayName,
+              category: c.category,
+            }))}
+          />
+        )}
       </header>
 
       {allConcepts.length > 0 && (
