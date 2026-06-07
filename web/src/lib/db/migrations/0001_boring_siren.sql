@@ -1,0 +1,1 @@
+ALTER TABLE `lessons` ADD `grade_level` integer;

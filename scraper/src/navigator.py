@@ -19,8 +19,9 @@ async def scrape_assignment(page: Page, assignment_id: str) -> LessonPayload:
     await page.wait_for_selector(SELECTORS["problems_map_items"], timeout=NAV_TIMEOUT_MS)
     await page.wait_for_load_state("networkidle", timeout=NAV_TIMEOUT_MS)
 
-    lesson_number, title = await _extract_lesson_info(page)
-    console.print(f"[green]Loaded: Lesson {lesson_number} — {title}[/green]")
+    lesson_number, title, grade_level = await _extract_lesson_info(page)
+    grade_str = f" (Grade {grade_level})" if grade_level else " (grade not detected)"
+    console.print(f"[green]Loaded: Lesson {lesson_number} — {title}{grade_str}[/green]")
 
     problem_entries = await _collect_problem_labels(page)
     labels_only = [label for _, label in problem_entries]
@@ -60,6 +61,7 @@ async def scrape_assignment(page: Page, assignment_id: str) -> LessonPayload:
     return LessonPayload(
         lesson_number=lesson_number,
         title=title,
+        grade_level=grade_level,
         problems=problems,
     )
 
@@ -96,23 +98,49 @@ async def _wait_for_selected(page: Page, expected_label: str) -> None:
         await page.wait_for_timeout(800)
 
 
-async def _extract_lesson_info(page: Page) -> tuple[int, str]:
-    """Pull the lesson number and title from the page (e.g., 'Lesson 33. Homework')."""
+async def _extract_lesson_info(page: Page) -> tuple[int, str, int | None]:
+    """Pull lesson number, title, and grade from the page.
+
+    The 'Lesson N' text and the 'GrXX_Y--' grade prefix may appear in different
+    DOM elements (the existing selector strips the prefix). We extract lesson
+    number + title from the targeted selector, then scan the wider body text
+    for the grade prefix as a separate signal.
+
+    Returns (lesson_number, title, grade_level). grade_level is None if not
+    detectable; the worksheet generator will reject lessons without a grade.
+    """
+    lesson_number: int | None = None
+    title: str | None = None
+
     candidates = await page.query_selector_all(SELECTORS["lesson_title"])
     for el in candidates:
         text = (await el.text_content() or "").strip()
         match = re.search(r"Lesson\s+(\d+)", text, re.IGNORECASE)
         if match:
-            return int(match.group(1)), text
+            lesson_number = int(match.group(1))
+            title = text
+            break
 
-    # Fallback: scan body text.
+    if lesson_number is None:
+        # Fallback: scan body text for 'Lesson N'.
+        body_text = await page.inner_text("body")
+        match = re.search(r"Lesson\s+(\d+)[^\n]{0,80}", body_text, re.IGNORECASE)
+        if match:
+            lesson_number = int(match.group(1))
+            title = match.group(0).strip().splitlines()[0]
+
+    if lesson_number is None or title is None:
+        raise RuntimeError(
+            "Could not find 'Lesson <N>' on the page — selector may have changed."
+        )
+
+    # Grade prefix: 'Gr04_3--Lesson 34 Homework' style. Scan whole page body
+    # since the prefix is often outside the lesson-title selector.
     body_text = await page.inner_text("body")
-    match = re.search(r"Lesson\s+(\d+)[^\n]{0,80}", body_text, re.IGNORECASE)
-    if match:
-        title = match.group(0).strip().splitlines()[0]
-        return int(match.group(1)), title
+    grade_match = re.search(r"\bGr(\d{1,2})_\d+", body_text, re.IGNORECASE)
+    grade_level = int(grade_match.group(1)) if grade_match else None
 
-    raise RuntimeError("Could not find 'Lesson <N>' on the page — selector may have changed.")
+    return lesson_number, title, grade_level
 
 
 async def _collect_problem_labels(page: Page) -> list[tuple[int, str]]:

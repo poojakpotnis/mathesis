@@ -76,6 +76,15 @@ export async function generateWorksheetAction(
       error: `Lesson classification status is "${lesson.classificationStatus}", must be "completed"`,
     };
   }
+  if (lesson.gradeLevel == null) {
+    return {
+      ok: false,
+      error: `Lesson ${lesson.id} is missing grade_level. Set it on the lesson before generating worksheets.`,
+    };
+  }
+  const gradeLevel = lesson.gradeLevel;
+  // Tag the parent span so all worksheets for grade N are filterable in Phoenix.
+  span.setAttribute("worksheet.grade_level", gradeLevel);
 
   const lessonMappings = await db()
     .select({
@@ -158,6 +167,7 @@ export async function generateWorksheetAction(
     count,
     difficulty,
     lessonTitle: lesson.title,
+    gradeLevel,
   });
 
   if (genResult.problems.length === 0) {
@@ -177,6 +187,7 @@ export async function generateWorksheetAction(
             problemText: p.problemText,
             expectedAnswer: p.correctAnswer,
             answerFormatType: p.answerFormatType,
+            gradeLevel,
           })
         )
       )

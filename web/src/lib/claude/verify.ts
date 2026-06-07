@@ -7,6 +7,7 @@ export type VerifyInput = {
   problemText: string;
   expectedAnswer: string;
   answerFormatType: string;
+  gradeLevel: number;
 };
 
 export type VerifyVerdict = "verified" | "flagged";
@@ -25,7 +26,8 @@ type SolveResponse = {
   confidence: number;
 };
 
-const SYSTEM_PROMPT = `You are a careful math tutor solving a single 4th-grade math problem.
+function buildSystemPrompt(gradeLevel: number): string {
+  return `You are a careful math tutor solving a single Grade ${gradeLevel} math problem.
 
 Solve the problem from scratch using your own reasoning. Do NOT assume any particular answer is correct — work it out yourself.
 
@@ -33,6 +35,7 @@ Return:
 - answer: the single canonical answer string. For fractions use lowest terms like "1/6". For decimals trim trailing zeros. Use ASCII math.
 - steps: 2-5 lines of worked solution, one step per line separated by \\n.
 - confidence: 0.0-1.0, how confident you are in your answer.`;
+}
 
 const OUTPUT_SCHEMA = {
   type: "object",
@@ -64,6 +67,7 @@ function normalizeAnswer(raw: string): string {
 
 export async function verifyProblem(input: VerifyInput): Promise<VerifyResult> {
   const client = new Anthropic();
+  const systemPrompt = buildSystemPrompt(input.gradeLevel);
 
   const userPrompt = [
     `Problem: ${input.problemText}`,
@@ -76,7 +80,7 @@ export async function verifyProblem(input: VerifyInput): Promise<VerifyResult> {
     "mathesis.verify.solve",
     {
       model: MODEL,
-      systemPrompt: SYSTEM_PROMPT,
+      systemPrompt,
       messages: [{ role: "user", content: userPrompt }],
     },
     async () => {
@@ -84,7 +88,7 @@ export async function verifyProblem(input: VerifyInput): Promise<VerifyResult> {
         model: MODEL,
         max_tokens: 16000,
         thinking: { type: "adaptive" },
-        system: SYSTEM_PROMPT,
+        system: systemPrompt,
         messages: [{ role: "user", content: userPrompt }],
         output_config: {
           format: { type: "json_schema", schema: OUTPUT_SCHEMA },

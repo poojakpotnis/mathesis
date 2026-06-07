@@ -20,4 +20,5 @@ class ScrapedProblem(BaseModel):
 class LessonPayload(BaseModel):
     lesson_number: int
     title: str
+    grade_level: int | None = None
     problems: list[ScrapedProblem]

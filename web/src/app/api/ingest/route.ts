@@ -26,6 +26,7 @@ const ProblemSchema = z.object({
 const IngestSchema = z.object({
   lesson_number: z.number(),
   title: z.string(),
+  grade_level: z.number().int().min(1).max(12).nullable().optional(),
   problems: z.array(ProblemSchema),
 });
 
@@ -61,6 +62,11 @@ export async function POST(request: NextRequest) {
       .update(lessons)
       .set({
         title: data.title,
+        // Only overwrite grade if the new payload has it. Preserves prior
+        // backfills when a re-scrape happens to fail grade extraction.
+        ...(data.grade_level != null
+          ? { gradeLevel: data.grade_level }
+          : {}),
         scrapedAt: now,
         totalProblems: data.problems.length,
         imageProblemsCount: imageCount,
@@ -77,6 +83,7 @@ export async function POST(request: NextRequest) {
       .values({
         lessonNumber: data.lesson_number,
         title: data.title,
+        gradeLevel: data.grade_level ?? null,
         scrapedAt: now,
         totalProblems: data.problems.length,
         imageProblemsCount: imageCount,

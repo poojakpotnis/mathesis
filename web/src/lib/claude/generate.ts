@@ -47,7 +47,8 @@ const DIFFICULTY_GUIDANCE: Record<GeneratorDifficulty, string> = {
     "Generate problems in PROGRESSIVE difficulty: start with 1-2 warm-up problems matching the source, then gradually ramp up to harder variants by the last problems.",
 };
 
-const SYSTEM_PROMPT = `You are a math curriculum expert creating practice problems for a 4th-grade RSM (Russian School of Mathematics) student.
+function buildSystemPrompt(gradeLevel: number): string {
+  return `You are a math curriculum expert creating practice problems for a Grade ${gradeLevel} RSM (Russian School of Mathematics) student.
 
 Your task: generate practice problems that exercise the given concepts, modeled after the source example problems where provided.
 
@@ -63,6 +64,7 @@ Guidelines:
 9. sourceScrapedProblemId: if you closely modeled this problem after one of the example problems, set this to that scraped_problem id. Otherwise null.
 10. Vary the surface form. Don't just change numbers — vary phrasing, contexts (word problems vs. pure computation), and presentation. The student should not feel they're solving the same problem 10 times.
 11. Every problem must be unambiguous, solvable with the listed concepts only, and have a single correct answer that you can verify yourself.`;
+}
 
 const ANSWER_FORMAT_TYPES = [
   "numeric",
@@ -153,8 +155,10 @@ export async function generateProblems(args: {
   count: number;
   difficulty: GeneratorDifficulty;
   lessonTitle: string;
+  gradeLevel: number;
 }): Promise<GeneratorResult> {
-  const { concepts, count, difficulty, lessonTitle } = args;
+  const { concepts, count, difficulty, lessonTitle, gradeLevel } = args;
+  const systemPrompt = buildSystemPrompt(gradeLevel);
   if (concepts.length === 0 || count <= 0) {
     return { problems: [] };
   }
@@ -178,7 +182,7 @@ export async function generateProblems(args: {
     "mathesis.generate.problems",
     {
       model: MODEL,
-      systemPrompt: SYSTEM_PROMPT,
+      systemPrompt: systemPrompt,
       messages: [{ role: "user", content: userPrompt }],
     },
     async () => {
@@ -186,7 +190,7 @@ export async function generateProblems(args: {
         model: MODEL,
         max_tokens: 64000,
         thinking: { type: "adaptive" },
-        system: SYSTEM_PROMPT,
+        system: systemPrompt,
         messages: [{ role: "user", content: userPrompt }],
         output_config: {
           format: { type: "json_schema", schema: OUTPUT_SCHEMA },
