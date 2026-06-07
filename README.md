@@ -10,7 +10,7 @@ I built something instead.
 
 ## What it does
 
-- **Scrapes** the weekly lesson from my kid's curriculum portal (Python + Playwright, runs locally)
+- **Ingests** the weekly lesson from my kid's curriculum portal — parent-authenticated, interactive, run locally on demand (Python + Playwright)
 - **Classifies** each problem by mathematical concept using Sonnet 4.6 with JSON-schema output
 - **Generates** new practice problems on demand (same concepts as the source, parent-tunable difficulty, parent-selectable focus tags) using Opus 4.6
 - **Verifies** every generated problem with a second independent Opus pass that solves it and compares to the proposed answer
@@ -37,7 +37,7 @@ Data quality issues need layered defenses, not one-off patches. LLM-as-judge sco
 
 ```
                      ┌─────────────────────┐
-                     │  scrape lesson      │  Python + Playwright (local)
+                     │  ingest lesson      │  Python + Playwright (local)
                      └──────────┬──────────┘
                                 ↓
                      ┌─────────────────────┐
@@ -73,18 +73,18 @@ cp .env.example .env.local   # fill in TURSO + ANTHROPIC + MATHESIS_API_KEY
 npm install
 npm run dev                  # → http://localhost:3000
 
-# Scraper + evals
+# Lesson importer + evals
 cd scraper
 cp .env.example .env         # fill in MATHESIS_API_URL + MATHESIS_API_KEY
 uv sync
-uv run python scrape.py discover   # interactive: log in, then dumps DOM
-uv run python scrape.py scrape <assignment_id> --dry   # extract without writing
+uv run python scrape.py discover                       # interactive: log in, then dumps DOM
+uv run python scrape.py ingest <assignment_id> --dry   # extract without writing
 
 # Phoenix (local eval dashboard)
 uvx arize-phoenix serve       # → http://localhost:6006
 ```
 
-You'll need a Turso database (free tier), an Anthropic API key with Sonnet 4.6 and Opus 4.6 access, and credentials for the curriculum portal you're scraping. The scraper is currently shaped for one specific portal but the extraction logic in `scraper/src/extractor.py` is portable to other AngularJS-rendered math portals with minor changes.
+You'll need a Turso database (free tier), an Anthropic API key with Sonnet 4.6 and Opus 4.6 access, and your own credentials for the curriculum portal you're importing from. The extraction logic is tuned for one specific portal layout; adapting it elsewhere would need rework.
 
 ## A note
 

@@ -49,15 +49,15 @@ async def _status() -> None:
         client.close()
 
     if not lessons:
-        console.print("[yellow]No lessons scraped yet.[/yellow]")
+        console.print("[yellow]No lessons ingested yet.[/yellow]")
         return
 
-    table = Table(title="Scraped Lessons")
+    table = Table(title="Ingested Lessons")
     table.add_column("Lesson", style="cyan")
     table.add_column("Title")
     table.add_column("Problems", justify="right")
     table.add_column("Images", justify="right")
-    table.add_column("Scraped At")
+    table.add_column("Ingested At")
 
     for l in lessons:
         table.add_row(
@@ -88,20 +88,20 @@ def _print_dry_run(payload) -> None:
 
 @click.group()
 def cli():
-    """Mathesis — RSM homework scraper."""
+    """Mathesis — lesson importer."""
     pass
 
 
 @cli.command()
 @click.argument("assignment_id", type=str)
-@click.option("--dry", is_flag=True, help="Scrape but don't push to server.")
-def scrape(assignment_id: str, dry: bool):
-    """Scrape an assignment by its ID.
+@click.option("--dry", is_flag=True, help="Ingest but don't push to server.")
+def ingest(assignment_id: str, dry: bool):
+    """Ingest an assignment by its ID.
 
-    The assignment ID is the number in the URL when viewing an assignment, e.g.
-    https://homework.russianschool.com/#/assignment/155914328 → assignment_id is 155914328.
+    The assignment ID is the number in the URL when viewing an assignment on the
+    curriculum portal.
     """
-    console.print(f"[bold]Scraping assignment {assignment_id}[/bold]")
+    console.print(f"[bold]Ingesting assignment {assignment_id}[/bold]")
     asyncio.run(_scrape(assignment_id, dry))
 
 
@@ -113,7 +113,7 @@ def discover():
 
 @cli.command()
 def status():
-    """Show which lessons have been scraped."""
+    """Show which lessons have been ingested."""
     asyncio.run(_status())
 
 
