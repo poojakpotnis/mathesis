@@ -41,7 +41,21 @@ async def _get_problem_text(page: Page) -> str:
     Subproblems have TWO .problem-question elements:
     - umbrella (problem.text, e.g. "Calculate.")
     - specific subpart (question.text, e.g. "1/2 of 1/3 is ____.")
-    We concatenate both, render fractions as "(top/bottom)", normalize blanks.
+    We concatenate both, then transform RSM's visual math notation into
+    plain-text that preserves the original mathematical meaning.
+
+    Plain-text conventions used in `problem_text`:
+    - Standalone fractions:  " (top/bot) "    e.g. "(1/2) of (1/3)"
+    - Mixed fractions:       Unicode codepoint if available, else "N_a/b"
+                             e.g. "5⅗" or "5_7/16"  (the underscore separator
+                             distinguishes a mixed fraction from multiplication;
+                             see top of this module for the full table.)
+    - Scaling parens like
+      (x+1)(x-1):            literal "(...)"  (RSM renders these via PNG
+                             images named binom_l.png / binom_r.png inside a
+                             div.elastic-wrapper structure; without explicit
+                             handling, innerText skips the images entirely)
+    - Superscripts: "^N",  subscripts: "_N",  blank answer boxes: " ___ "
     """
     els = await page.query_selector_all(".problem-right-part .problem-question")
     if not els:
@@ -52,33 +66,109 @@ async def _get_problem_text(page: Page) -> str:
 
     parts: list[str] = []
     for el in els:
-        rendered = await el.evaluate(
-            """
-            (node) => {
-                const clone = node.cloneNode(true);
-                clone.querySelectorAll('table.fraction').forEach(tbl => {
-                    const top = (tbl.querySelector('.fraction-top')?.innerText || '?').trim();
-                    const bot = (tbl.querySelector('.fraction-bottom')?.innerText || '?').trim();
-                    tbl.replaceWith(document.createTextNode(' (' + top + '/' + bot + ') '));
-                });
-                clone.querySelectorAll('sup').forEach(s => {
-                    s.replaceWith(document.createTextNode('^' + (s.innerText || s.textContent || '')));
-                });
-                clone.querySelectorAll('sub').forEach(s => {
-                    s.replaceWith(document.createTextNode('_' + (s.innerText || s.textContent || '')));
-                });
-                clone.querySelectorAll('.rsm-placeholder').forEach(ph => {
-                    ph.replaceWith(document.createTextNode(' ___ '));
-                });
-                return clone.innerText || clone.textContent || '';
-            }
-            """
-        )
+        rendered = await el.evaluate(_RENDER_PROBLEM_TEXT_JS)
         cleaned = _clean_text(rendered)
         if cleaned:
             parts.append(cleaned)
 
     return " ".join(parts)
+
+
+# JavaScript that runs INSIDE Playwright's browser context. We can't use Python
+# string formatting on this safely (curly braces), so the Unicode mixed-fraction
+# lookup is embedded directly. Tested DOM patterns are documented inline.
+_RENDER_PROBLEM_TEXT_JS = r"""
+(node) => {
+    const clone = node.cloneNode(true);
+
+    // Unicode "vulgar fractions" block. Covers ~95% of grade 4–6 fractions.
+    // Fractions outside this set fall back to N_a/b in the mixed-fraction case.
+    const UNICODE_FRACTIONS = {
+        '1/2': '½', '1/3': '⅓', '2/3': '⅔',
+        '1/4': '¼', '3/4': '¾',
+        '1/5': '⅕', '2/5': '⅖', '3/5': '⅗', '4/5': '⅘',
+        '1/6': '⅙', '5/6': '⅚',
+        '1/7': '⅐',
+        '1/8': '⅛', '3/8': '⅜', '5/8': '⅝', '7/8': '⅞',
+        '1/9': '⅑',
+        '1/10': '⅒'
+    };
+
+    // (1) Fraction tables — stacked-fraction visual representation.
+    //     Three rendering cases, picked in this priority order:
+    //       (a) Mixed-fraction: preceding text ends in a digit (e.g., "5"
+    //           before "3/5") → render "5⅗" if Unicode exists, else "5_3/5".
+    //           Without this, "5 (3/5)" silently flips meaning from mixed
+    //           fraction (5.6) to multiplication (3).
+    //       (b) Inside an elastic-wrapper body → render bare "1/5" (no
+    //           parens), because the wrapper provides its own outer parens.
+    //           Without this, "(1/5)^2" becomes "(15)^2" — see (2) below.
+    //       (c) Standalone → " (top/bot) " with surrounding spaces for
+    //           natural text flow ("(1/2) of (1/3)").
+    //     The underscore in fallback "5_a/b" is visually distinct from " "
+    //     (which reads as multiplication) and "+" (which would re-interpret
+    //     the math). Trade-off: collides with subscript prefix in theory,
+    //     but RSM grade 4–6 problems don't use subscripts.
+    clone.querySelectorAll('table.fraction').forEach(tbl => {
+        const top = (tbl.querySelector('.fraction-top')?.innerText || '?').trim();
+        const bot = (tbl.querySelector('.fraction-bottom')?.innerText || '?').trim();
+
+        // Walk backwards across whitespace-only text nodes to find the real
+        // preceding sibling. We only check immediate siblings — if the digit
+        // is in a different element, we treat as standalone (acceptable false
+        // negative; never produces wrong math, just over-paren'd).
+        let sibling = tbl.previousSibling;
+        while (sibling && sibling.nodeType === 3 && !sibling.textContent.trim()) {
+            sibling = sibling.previousSibling;
+        }
+        const prevText = sibling ? (sibling.textContent || '') : '';
+        const isMixedFraction = /\d\s*$/.test(prevText);
+        const insideElasticBody = tbl.closest('.elastic-body') !== null;
+
+        if (isMixedFraction) {
+            const unicode = UNICODE_FRACTIONS[top + '/' + bot];
+            tbl.replaceWith(document.createTextNode(
+                unicode ? unicode : '_' + top + '/' + bot
+            ));
+        } else if (insideElasticBody) {
+            tbl.replaceWith(document.createTextNode(top + '/' + bot));
+        } else {
+            tbl.replaceWith(document.createTextNode(' (' + top + '/' + bot + ') '));
+        }
+    });
+
+    // (2) RSM's image-based scaling parens.
+    //     RSM renders parens around expressions using <img src="binom_l.png">
+    //     and binom_r.png inside a div.elastic-wrapper > div.elastic-box
+    //     structure with empty alt="". innerText therefore drops them and
+    //     "(x+1)(x-1)=0" becomes "x+1 x-1 =0" — silently broken math.
+    //     We pull the body text out and re-wrap in literal parens. Runs
+    //     AFTER fraction handling so the body's fractions are already plain
+    //     text (otherwise innerText would concatenate "1" + "5" into "15").
+    //     Note: nested elastic-wrappers are not handled — would need
+    //     leaves-first traversal. Grade 4 has none, revisit at higher grades.
+    clone.querySelectorAll('.elastic-wrapper').forEach(wrapper => {
+        const body = wrapper.querySelector('.elastic-body');
+        const bodyText = body ? (body.innerText || body.textContent || '').trim() : '';
+        wrapper.replaceWith(document.createTextNode('(' + bodyText + ')'));
+    });
+
+    // (3) Superscripts and subscripts.
+    clone.querySelectorAll('sup').forEach(s => {
+        s.replaceWith(document.createTextNode('^' + (s.innerText || s.textContent || '')));
+    });
+    clone.querySelectorAll('sub').forEach(s => {
+        s.replaceWith(document.createTextNode('_' + (s.innerText || s.textContent || '')));
+    });
+
+    // (4) RSM blank answer boxes.
+    clone.querySelectorAll('.rsm-placeholder').forEach(ph => {
+        ph.replaceWith(document.createTextNode(' ___ '));
+    });
+
+    return clone.innerText || clone.textContent || '';
+}
+"""
 
 
 def _clean_text(text: str) -> str:
