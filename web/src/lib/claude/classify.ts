@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { llmSpan } from "@/lib/otel/tracer";
 
 export type ClassifierInputProblem = {
   id: number;
@@ -136,20 +137,37 @@ export async function classifyProblems(
     problems.map(formatProblemForPrompt).join("\n\n"),
   ].join("\n");
 
-  const response = await client.messages.create({
-    model: "claude-sonnet-4-6",
-    max_tokens: 16000,
-    system: SYSTEM_PROMPT,
-    messages: [{ role: "user", content: userPrompt }],
-    output_config: {
-      format: { type: "json_schema", schema: OUTPUT_SCHEMA },
+  return llmSpan(
+    "mathesis.classify.lesson",
+    {
+      model: "claude-sonnet-4-6",
+      systemPrompt: SYSTEM_PROMPT,
+      messages: [{ role: "user", content: userPrompt }],
     },
-  });
+    async () => {
+      const response = await client.messages.create({
+        model: "claude-sonnet-4-6",
+        max_tokens: 16000,
+        system: SYSTEM_PROMPT,
+        messages: [{ role: "user", content: userPrompt }],
+        output_config: {
+          format: { type: "json_schema", schema: OUTPUT_SCHEMA },
+        },
+      });
 
-  const textBlock = response.content.find((b) => b.type === "text");
-  if (!textBlock || textBlock.type !== "text") {
-    throw new Error("Classifier returned no text block");
-  }
+      const textBlock = response.content.find((b) => b.type === "text");
+      if (!textBlock || textBlock.type !== "text") {
+        throw new Error("Classifier returned no text block");
+      }
 
-  return JSON.parse(textBlock.text) as ClassifierResult;
+      return {
+        result: JSON.parse(textBlock.text) as ClassifierResult,
+        output: {
+          responseText: textBlock.text,
+          inputTokens: response.usage.input_tokens,
+          outputTokens: response.usage.output_tokens,
+        },
+      };
+    }
+  );
 }
