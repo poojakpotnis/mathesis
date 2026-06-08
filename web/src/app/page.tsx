@@ -39,7 +39,7 @@ export default function LessonsPage() {
           Lessons
         </h2>
         <p className="text-muted-foreground mt-2 font-light">
-          Scraped homework lessons from RSM. Select a lesson to view problems or
+          Imported homework lessons. Select a lesson to view problems or
           generate practice worksheets.
         </p>
       </header>
@@ -140,10 +140,10 @@ function EmptyState() {
         No lessons yet
       </h3>
       <p className="text-sm text-muted-foreground max-w-md mx-auto font-light">
-        Run the scraper to import homework lessons from RSM.
+        Run the lesson importer to add homework lessons.
       </p>
       <pre className="mt-4 inline-block text-xs bg-muted px-4 py-2 rounded-md text-muted-foreground font-mono">
-        python scrape.py scrape 32
+        uv run python scrape.py ingest 32 --dry
       </pre>
     </div>
   );

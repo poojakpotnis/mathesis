@@ -4,9 +4,10 @@ export const lessons = sqliteTable("lessons", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   lessonNumber: integer("lesson_number").notNull().unique(),
   title: text("title").notNull(),
-  // RSM grade level (1-12), parsed from the page heading "Gr04_3--Lesson 34…"
-  // pattern by the scraper. Nullable for backward-compat on lessons scraped
-  // before this column existed; the worksheet generator throws if missing.
+  // Grade level (1-12), parsed from the curriculum portal page heading
+  // (e.g. "Gr04_3--Lesson 34…") by the lesson importer. Nullable for
+  // backward-compat on lessons imported before this column existed; the
+  // worksheet generator throws if missing.
   gradeLevel: integer("grade_level"),
   scrapedAt: text("scraped_at").notNull(),
   totalProblems: integer("total_problems").notNull(),

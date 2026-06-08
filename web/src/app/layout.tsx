@@ -17,7 +17,7 @@ const sans = Source_Sans_3({
 
 export const metadata: Metadata = {
   title: "Mathesis",
-  description: "RSM practice worksheet generator & progress tracker",
+  description: "Practice worksheet generator & progress tracker",
 };
 
 export default function RootLayout({
