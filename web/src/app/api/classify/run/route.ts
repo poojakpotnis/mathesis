@@ -10,6 +10,10 @@ export const maxDuration = 120;
 
 const RunSchema = z.object({
   lessonTitle: z.string().min(1),
+  libraryMode: z
+    .enum(["full", "names_only", "categories_only"])
+    .optional()
+    .default("full"),
   problems: z
     .array(
       z.object({
@@ -58,7 +62,8 @@ export async function POST(request: NextRequest) {
   const result = await classifyProblems(
     input,
     parsed.data.lessonTitle,
-    conceptLibrary
+    conceptLibrary,
+    parsed.data.libraryMode
   );
   return NextResponse.json(result);
 }

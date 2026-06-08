@@ -26,6 +26,15 @@ export type ClassifierLibraryConcept = {
   description: string;
 };
 
+// Projection modes for the prior-taxonomy library. Used by Phase 5d variant
+// experiments to isolate which part of the library actually steers the model.
+//   - "full":              every field — names + displayNames + categories + descriptions
+//   - "names_only":        just the snake_case names; no descriptions / display names
+//   - "categories_only":   only the category buckets + how many concepts live in each;
+//                          specific concept names are withheld. Tests whether structural
+//                          context alone is enough or whether per-concept naming matters.
+export type LibraryMode = "full" | "names_only" | "categories_only";
+
 export type ClassifierProblemMapping = {
   problem_id: number;
   concepts: { name: string; confidence: number }[];
@@ -73,17 +82,56 @@ Only invent a new concept name when none of the existing concepts describes the 
 
 Library:`;
 
-function buildSystemPrompt(existingConcepts: ClassifierLibraryConcept[]): string {
-  if (existingConcepts.length === 0) {
-    return BASE_SYSTEM_PROMPT;
+const LIBRARY_PREAMBLE_NAMES_ONLY = `EXISTING CONCEPT LIBRARY (names only)
+
+The list below is the canonical set of concept names already in use across previously-classified lessons. Reuse these names whenever a problem fits one of them — consistency across lessons is more valuable than picking a synonym that feels more natural per batch.
+
+Descriptions and display names are not shown here; rely on the name itself to decide if it fits. Only invent a new name when no existing concept describes the skill being tested. Follow snake_case for any new names.
+
+Library:`;
+
+const LIBRARY_PREAMBLE_CATEGORIES_ONLY = `EXISTING CONCEPT LIBRARY (structure only)
+
+A prior taxonomy of concepts already exists across previously-classified lessons, but the specific concept names are not shown to you in this run. What is shown below is the per-category count — how many concepts live in each category.
+
+You should still aim for consistency: pick names that would fit naturally into this structure, in proportions that don't dramatically reshape the existing distribution. If a problem clearly belongs to a category that already has many concepts, the prior taxonomy probably already covers it — prefer naming consistent with what a previously-classified lesson would likely have used, rather than inventing a fresh synonym.
+
+Distribution:`;
+
+function projectLibrary(
+  concepts: ClassifierLibraryConcept[],
+  mode: LibraryMode
+): string {
+  if (concepts.length === 0) return "";
+  if (mode === "full") {
+    const formatted = concepts
+      .map(
+        (c) => `- ${c.name} ("${c.displayName}", ${c.category}): ${c.description}`
+      )
+      .join("\n");
+    return `${LIBRARY_PREAMBLE}\n${formatted}`;
   }
-  const formatted = existingConcepts
-    .map(
-      (c) =>
-        `- ${c.name} ("${c.displayName}", ${c.category}): ${c.description}`
-    )
+  if (mode === "names_only") {
+    const formatted = concepts.map((c) => `- ${c.name}`).join("\n");
+    return `${LIBRARY_PREAMBLE_NAMES_ONLY}\n${formatted}`;
+  }
+  // categories_only — collapse to per-category counts; never emit a concept name.
+  const counts = new Map<string, number>();
+  for (const c of concepts) counts.set(c.category, (counts.get(c.category) ?? 0) + 1);
+  const formatted = [...counts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .map(([cat, n]) => `- ${cat}: ${n} concept${n === 1 ? "" : "s"}`)
     .join("\n");
-  return `${BASE_SYSTEM_PROMPT}\n\n${LIBRARY_PREAMBLE}\n${formatted}`;
+  return `${LIBRARY_PREAMBLE_CATEGORIES_ONLY}\n${formatted}`;
+}
+
+function buildSystemPrompt(
+  existingConcepts: ClassifierLibraryConcept[],
+  mode: LibraryMode
+): string {
+  const libraryBlock = projectLibrary(existingConcepts, mode);
+  if (!libraryBlock) return BASE_SYSTEM_PROMPT;
+  return `${BASE_SYSTEM_PROMPT}\n\n${libraryBlock}`;
 }
 
 const OUTPUT_SCHEMA = {
@@ -153,14 +201,15 @@ function formatProblemForPrompt(p: ClassifierInputProblem): string {
 export async function classifyProblems(
   problems: ClassifierInputProblem[],
   lessonTitle: string,
-  existingConcepts: ClassifierLibraryConcept[] = []
+  existingConcepts: ClassifierLibraryConcept[] = [],
+  libraryMode: LibraryMode = "full"
 ): Promise<ClassifierResult> {
   if (problems.length === 0) {
     return { concepts: [], problem_classifications: [] };
   }
 
   const client = new Anthropic();
-  const systemPrompt = buildSystemPrompt(existingConcepts);
+  const systemPrompt = buildSystemPrompt(existingConcepts, libraryMode);
 
   const userPrompt = [
     `Lesson: ${lessonTitle}`,
