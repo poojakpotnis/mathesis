@@ -59,7 +59,7 @@ export async function POST(request: NextRequest) {
 
   if (problems.length === 0) {
     return NextResponse.json(
-      { error: "Lesson has no scraped problems" },
+      { error: "Lesson has no imported problems" },
       { status: 400 }
     );
   }

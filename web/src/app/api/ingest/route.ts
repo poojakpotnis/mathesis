@@ -63,7 +63,7 @@ export async function POST(request: NextRequest) {
       .set({
         title: data.title,
         // Only overwrite grade if the new payload has it. Preserves prior
-        // backfills when a re-scrape happens to fail grade extraction.
+        // backfills when a re-import happens to fail grade extraction.
         ...(data.grade_level != null
           ? { gradeLevel: data.grade_level }
           : {}),
