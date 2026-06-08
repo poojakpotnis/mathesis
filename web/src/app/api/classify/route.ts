@@ -85,10 +85,15 @@ export async function POST(request: NextRequest) {
       })
       .from(concepts);
 
+    // Phase 5d ablation showed snake_case names alone carry the full classifier
+    // signal (B matched A at 25/25); descriptions and displayNames are decoration
+    // in this prompt. Shipping "names_only" cuts roughly half the library token
+    // weight per classify call with no measured accuracy loss on Lesson 33.
     const result = await classifyProblems(
       classifierInput,
       lesson.title,
-      conceptLibrary
+      conceptLibrary,
+      "names_only"
     );
 
     const conceptNames = result.concepts.map((c) => c.name);
