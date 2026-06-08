@@ -60,21 +60,73 @@ const OUTPUT_SCHEMA = {
   additionalProperties: false,
 };
 
-function normalizeAnswer(raw: string): string {
+export function normalizeAnswer(raw: string): string {
   let s = raw.trim().toLowerCase();
-  // strip surrounding quotes/punctuation
-  s = s.replace(/^["'`]+|["'`.,!?]+$/g, "");
+  // strip surrounding quotes
+  s = s.replace(/^["'`]+|["'`]+$/g, "");
+  // strip trailing sentence punctuation (keep internal commas — they separate values)
+  s = s.replace(/[.,!?;]+$/g, "");
   // collapse whitespace
   s = s.replace(/\s+/g, " ");
   // strip $ and units padding
   s = s.replace(/\s*\$\s*/g, "");
   // unify fraction spacing: "1 / 2" -> "1/2"
   s = s.replace(/\s*\/\s*/g, "/");
+  // Treat " or " as a comma separator: "x = -3 or x = 2" → "x = -3, x = 2".
+  // Catches the verifier's most common surface-form deviation on multi-value
+  // answers (bucket 1 of the Phase-5e parent-review pattern analysis).
+  s = s.replace(/\s+or\s+/g, ", ");
+  // Treat a sentence-ending period as a comma. Lookahead requires a following
+  // space so decimals like 1.5 stay untouched. Catches true/false answers where
+  // the verifier writes "False. ..." vs the generator's "False, ..." (bucket 3).
+  s = s.replace(/\.(?=\s)/g, ",");
+  // Strip repeated "var = " prefixes after a comma: "x = 1, x = 2" → "x = 1, 2"
+  // (bucket 2). The first "var = " is left intact.
+  s = s.replace(/,\s*[a-z]\s*=\s*/g, ", ");
   // trim trailing zeros on decimals: 1.50 -> 1.5, 1.00 -> 1
   if (/^-?\d+\.\d+$/.test(s)) {
     s = s.replace(/0+$/, "").replace(/\.$/, "");
   }
-  return s;
+  return s.trim();
+}
+
+/**
+ * Decide whether two answers are equivalent after normalization. Three
+ * acceptance paths, each grounded in a real false-positive pattern observed
+ * during Phase 5e parent reviews:
+ *   - exact match after normalization (covers the bulk; bucket 1 collapses
+ *     here because " or " is rewritten to ",")
+ *   - multi-value answer with re-ordering: split on commas, sort, compare
+ *     (covers e.g. "-3, 2" vs "2, -3")
+ *   - true/false answer where the verifier appended an explanatory clause:
+ *     require matching True/False verdicts AND that every non-trivial token
+ *     in the expected correction appears somewhere in the independent text
+ */
+export function answersMatch(expected: string, independent: string): boolean {
+  const e = normalizeAnswer(expected);
+  const i = normalizeAnswer(independent);
+  if (e === i) return true;
+
+  // Multi-value with reordering
+  const eParts = e.split(",").map((p) => p.trim()).filter((p) => p.length > 0);
+  const iParts = i.split(",").map((p) => p.trim()).filter((p) => p.length > 0);
+  if (eParts.length > 1 && eParts.length === iParts.length) {
+    const eSorted = [...eParts].sort().join("|");
+    const iSorted = [...iParts].sort().join("|");
+    if (eSorted === iSorted) return true;
+  }
+
+  // True/false with verbose explanation
+  const eTF = e.match(/^(true|false)[\s,]+(.+)$/);
+  const iTF = i.match(/^(true|false)[\s,]+(.+)$/);
+  if (eTF && iTF && eTF[1] === iTF[1]) {
+    const eTokens = eTF[2].split(/\s+/).filter((t) => t.length > 1);
+    if (eTokens.length > 0 && eTokens.every((t) => iTF[2].includes(t))) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 export async function verifyProblem(input: VerifyInput): Promise<VerifyResult> {
@@ -127,7 +179,7 @@ export async function verifyProblem(input: VerifyInput): Promise<VerifyResult> {
 
   const normalizedExpected = normalizeAnswer(input.expectedAnswer);
   const normalizedIndependent = normalizeAnswer(solved.parsed.answer);
-  const matches = normalizedExpected === normalizedIndependent;
+  const matches = answersMatch(input.expectedAnswer, solved.parsed.answer);
 
   const verificationStatus: VerifyVerdict = matches ? "verified" : "flagged";
   const verificationDetails = matches
