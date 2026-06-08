@@ -1,0 +1,188 @@
+{
+  "concept_accuracy_eval": {
+    "score": 1.0,
+    "matches": 25,
+    "total": 25,
+    "model": "claude-sonnet-4-6",
+    "dataset_version_id": "RGF0YXNldFZlcnNpb246Mw==",
+    "phoenix_experiment_id": null,
+    "recorded_at": "2026-06-08T15:19:35+00:00",
+    "rows": [
+      {
+        "rsm": "10a",
+        "primary": "solving_equations_products",
+        "top": "solving_equations_products",
+        "score": 1,
+        "label": "match"
+      },
+      {
+        "rsm": "10b",
+        "primary": "solving_equations_products",
+        "top": "solving_equations_products",
+        "score": 1,
+        "label": "match"
+      },
+      {
+        "rsm": "12a",
+        "primary": "solving_linear_equations",
+        "top": "solving_linear_equations",
+        "score": 1,
+        "label": "match"
+      },
+      {
+        "rsm": "12b",
+        "primary": "solving_linear_equations",
+        "top": "solving_linear_equations",
+        "score": 1,
+        "label": "match"
+      },
+      {
+        "rsm": "12d",
+        "primary": "solving_linear_equations",
+        "top": "solving_linear_equations",
+        "score": 1,
+        "label": "match"
+      },
+      {
+        "rsm": "1",
+        "primary": "speed_distance_time",
+        "top": "speed_distance_time",
+        "score": 1,
+        "label": "match"
+      },
+      {
+        "rsm": "13",
+        "primary": "multi_step_word_problem",
+        "top": "multi_step_word_problem",
+        "score": 1,
+        "label": "match"
+      },
+      {
+        "rsm": "5a",
+        "primary": "fraction_inequality",
+        "top": "fraction_inequality",
+        "score": 1,
+        "label": "match"
+      },
+      {
+        "rsm": "5b",
+        "primary": "fraction_inequality",
+        "top": "fraction_inequality",
+        "score": 1,
+        "label": "match"
+      },
+      {
+        "rsm": "5c",
+        "primary": "fraction_inequality",
+        "top": "fraction_inequality",
+        "score": 1,
+        "label": "match"
+      },
+      {
+        "rsm": "5d",
+        "primary": "fraction_inequality",
+        "top": "fraction_inequality",
+        "score": 1,
+        "label": "match"
+      },
+      {
+        "rsm": "6a",
+        "primary": "exponent_evaluation",
+        "top": "exponent_evaluation",
+        "score": 1,
+        "label": "match"
+      },
+      {
+        "rsm": "6b",
+        "primary": "exponent_evaluation",
+        "top": "exponent_evaluation",
+        "score": 1,
+        "label": "match"
+      },
+      {
+        "rsm": "6c",
+        "primary": "exponent_evaluation",
+        "top": "exponent_evaluation",
+        "score": 1,
+        "label": "match"
+      },
+      {
+        "rsm": "6d",
+        "primary": "exponent_evaluation",
+        "top": "exponent_evaluation",
+        "score": 1,
+        "label": "match"
+      },
+      {
+        "rsm": "7a",
+        "primary": "mental_math_shortcuts",
+        "top": "mental_math_shortcuts",
+        "score": 1,
+        "label": "match"
+      },
+      {
+        "rsm": "7b",
+        "primary": "mental_math_shortcuts",
+        "top": "mental_math_shortcuts",
+        "score": 1,
+        "label": "match"
+      },
+      {
+        "rsm": "11a",
+        "primary": "fraction_multiplication",
+        "top": "fraction_multiplication",
+        "score": 1,
+        "label": "match"
+      },
+      {
+        "rsm": "11b",
+        "primary": "fraction_division",
+        "top": "fraction_division",
+        "score": 1,
+        "label": "match"
+      },
+      {
+        "rsm": "11c",
+        "primary": "fraction_multiplication",
+        "top": "fraction_multiplication",
+        "score": 1,
+        "label": "match"
+      },
+      {
+        "rsm": "11d",
+        "primary": "fraction_division",
+        "top": "fraction_division",
+        "score": 1,
+        "label": "match"
+      },
+      {
+        "rsm": "11e",
+        "primary": "fraction_multiplication",
+        "top": "fraction_multiplication",
+        "score": 1,
+        "label": "match"
+      },
+      {
+        "rsm": "11f",
+        "primary": "fraction_division",
+        "top": "fraction_division",
+        "score": 1,
+        "label": "match"
+      },
+      {
+        "rsm": "11g",
+        "primary": "fraction_multiplication",
+        "top": "fraction_multiplication",
+        "score": 1,
+        "label": "match"
+      },
+      {
+        "rsm": "11h",
+        "primary": "fraction_division",
+        "top": "fraction_division",
+        "score": 1,
+        "label": "match"
+      }
+    ]
+  }
+}

@@ -32,7 +32,7 @@ import ast
 import os
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import httpx
 from dotenv import load_dotenv
@@ -103,70 +103,98 @@ def _parse_tags(raw: Any) -> list[str]:
     return []
 
 
-def main() -> None:
+def _concept_match(output: dict[str, Any], expected: dict[str, Any]) -> dict[str, Any]:
+    top = (output or {}).get("top_concept") or ""
+    primary = (expected or {}).get("primary_concept") or ""
+    expected_tags = _parse_tags((expected or {}).get("expected_concept_tags"))
+
+    top_n = top.strip().lower()
+    primary_n = primary.strip().lower()
+    tags_n = {t.strip().lower() for t in expected_tags}
+
+    if top_n == primary_n:
+        return {
+            "score": 1,
+            "label": "match",
+            "explanation": f"top={top!r} == primary={primary!r}",
+        }
+    miss = "close_miss" if top_n in tags_n else "off_topic_miss"
+    return {
+        "score": 0,
+        "label": miss,
+        "explanation": (
+            f"top={top!r}; primary={primary!r}; expected_tags={sorted(expected_tags)}"
+        ),
+    }
+
+
+def run_eval(
+    *,
+    experiment_name: str = "concept_accuracy_eval",
+    experiment_description: str = (
+        "Live classifier vs golden_v1.primary_concept. "
+        "Top concept by confidence; exact-match scoring."
+    ),
+    extra_metadata: dict[str, Any] | None = None,
+    progress: Callable[[str], None] = lambda _msg: None,
+) -> dict[str, Any]:
+    """Run the concept-accuracy eval and return a result dict.
+
+    Single execution path shared by the CLI (`python -m evals.concept_accuracy_eval`)
+    and the regression gate (`python -m evals.gate`). Always pushes a Phoenix
+    experiment for history; the caller is responsible for any human-facing print.
+
+    Returns:
+      {
+        "score": float in [0, 1],        # matches / total
+        "matches": int,
+        "total": int,
+        "rows": list[dict],              # per-example {rsm, primary, top, score, label}
+        "experiment_id": str | None,
+        "dataset_version_id": str,
+        "classifier_model": str,
+      }
+    """
     if not MATHESIS_API_KEY:
-        sys.exit("MATHESIS_API_KEY not set — check scraper/.env")
+        raise RuntimeError("MATHESIS_API_KEY not set — check scraper/.env")
 
     client = Client(base_url=PHOENIX_ENDPOINT)
     dataset = client.datasets.get_dataset(dataset=DATASET_NAME)
-    print(
+    progress(
         f"Loaded {DATASET_NAME} version={dataset.version_id} "
         f"({len(dataset.examples)} examples)"
     )
 
-    print(f"Classifying {len(dataset.examples)} problems in one batch...")
+    progress(f"Classifying {len(dataset.examples)} problems in one batch...")
     classifications = _call_classifier(dataset.examples)
-    print(f"Classifier returned predictions for {len(classifications)} problems")
+    progress(f"Classifier returned predictions for {len(classifications)} problems")
 
     def task(example: dict[str, Any]) -> dict[str, Any]:
         sid = int(example["metadata"]["scraped_problem_id"])
         concepts = classifications.get(sid, [])
         return {"top_concept": _pick_top_concept(concepts), "all_concepts": concepts}
 
-    def concept_match(output: dict[str, Any], expected: dict[str, Any]) -> dict[str, Any]:
-        top = (output or {}).get("top_concept") or ""
-        primary = (expected or {}).get("primary_concept") or ""
-        expected_tags = _parse_tags((expected or {}).get("expected_concept_tags"))
-
-        top_n = top.strip().lower()
-        primary_n = primary.strip().lower()
-        tags_n = {t.strip().lower() for t in expected_tags}
-
-        if top_n == primary_n:
-            return {
-                "score": 1,
-                "label": "match",
-                "explanation": f"top={top!r} == primary={primary!r}",
-            }
-        miss = "close_miss" if top_n in tags_n else "off_topic_miss"
-        return {
-            "score": 0,
-            "label": miss,
-            "explanation": (
-                f"top={top!r}; primary={primary!r}; expected_tags={sorted(expected_tags)}"
-            ),
-        }
+    metadata: dict[str, Any] = {
+        "classifier_model": CLASSIFIER_MODEL,
+        "dataset_version_id": dataset.version_id,
+    }
+    if extra_metadata:
+        metadata.update(extra_metadata)
 
     experiment = client.experiments.run_experiment(
         dataset=dataset,
         task=task,
-        evaluators=[concept_match],
-        experiment_name="concept_accuracy_eval",
-        experiment_description=(
-            "Live classifier vs golden_v1.primary_concept. "
-            "Top concept by confidence; exact-match scoring."
-        ),
-        experiment_metadata={
-            "classifier_model": CLASSIFIER_MODEL,
-            "dataset_version_id": dataset.version_id,
-        },
+        evaluators=[_concept_match],
+        experiment_name=experiment_name,
+        experiment_description=experiment_description,
+        experiment_metadata=metadata,
         print_summary=False,
     )
 
     rows = []
     for ex in dataset.examples:
         out = task(ex)
-        ev = concept_match(out, ex["output"])
+        ev = _concept_match(out, ex["output"])
         rows.append(
             {
                 "rsm": ex["metadata"]["rsm_problem_number"],
@@ -179,12 +207,27 @@ def main() -> None:
 
     matches = sum(r["score"] for r in rows)
     total = len(rows)
+    return {
+        "score": (matches / total) if total else 0.0,
+        "matches": matches,
+        "total": total,
+        "rows": rows,
+        "experiment_id": getattr(experiment, "id", None),
+        "dataset_version_id": dataset.version_id,
+        "classifier_model": CLASSIFIER_MODEL,
+    }
+
+
+def _print_summary(result: dict[str, Any]) -> None:
+    rows = result["rows"]
+    matches = result["matches"]
+    total = result["total"]
+    pct = result["score"] * 100
     close = [r for r in rows if r["label"] == "close_miss"]
     off_topic = [r for r in rows if r["label"] == "off_topic_miss"]
-    pct = (matches / total * 100) if total else 0.0
 
     print()
-    print(f"=== concept_accuracy_eval (dataset {dataset.version_id}) ===")
+    print(f"=== concept_accuracy_eval (dataset {result['dataset_version_id']}) ===")
     print(f"Accuracy: {matches}/{total} ({pct:.0f}%)")
     print(f"Close misses     ({len(close):2d}): {[r['rsm'] for r in close]}")
     print(f"Off-topic misses ({len(off_topic):2d}): {[r['rsm'] for r in off_topic]}")
@@ -195,10 +238,17 @@ def main() -> None:
         print(f"{r['rsm']:<6}{r['score']:<7}{r['label']:<18}{r['primary']:<32}{r['top']:<32}")
 
     print()
-    exp_id = getattr(experiment, "id", None)
-    if exp_id:
-        print(f"Phoenix experiment id: {exp_id}")
+    if result["experiment_id"]:
+        print(f"Phoenix experiment id: {result['experiment_id']}")
     print("View results in Phoenix UI under the 'Experiments' tab on mathesis-golden-v1.")
+
+
+def main() -> None:
+    try:
+        result = run_eval(progress=print)
+    except RuntimeError as exc:
+        sys.exit(str(exc))
+    _print_summary(result)
 
 
 if __name__ == "__main__":
