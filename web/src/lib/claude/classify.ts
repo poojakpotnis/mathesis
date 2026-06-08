@@ -58,7 +58,8 @@ const CATEGORIES = [
   "word_problems",
 ] as const;
 
-const BASE_SYSTEM_PROMPT = `You are a math curriculum expert classifying homework problems for a 4th-grade student.
+function buildBaseSystemPrompt(gradeLevel: number): string {
+  return `You are a math curriculum expert classifying homework problems for a Grade ${gradeLevel} student.
 
 Your task: identify the mathematical concepts each problem tests, then return a unified concept taxonomy plus per-problem mappings.
 
@@ -73,6 +74,7 @@ Guidelines:
 8. Image-only or image-heavy problems are harder to classify — assign best-guess concepts with lower confidence rather than skipping.
 9. Every problem in the input MUST appear exactly once in problem_classifications, using the same numeric problem_id from the input. The input format is "PROBLEM <id> (#<problemNumber>):" — the problem_id you return is the numeric <id> (e.g. 1, 2, 3), NOT the human-readable <problemNumber> (e.g. 10a, 7a, 11h). Echoing the problemNumber as problem_id is a critical mistake.
 10. Every concept name referenced in problem_classifications MUST appear in the concepts array.`;
+}
 
 const LIBRARY_PREAMBLE = `EXISTING CONCEPT LIBRARY
 
@@ -126,12 +128,14 @@ function projectLibrary(
 }
 
 function buildSystemPrompt(
+  gradeLevel: number,
   existingConcepts: ClassifierLibraryConcept[],
   mode: LibraryMode
 ): string {
+  const base = buildBaseSystemPrompt(gradeLevel);
   const libraryBlock = projectLibrary(existingConcepts, mode);
-  if (!libraryBlock) return BASE_SYSTEM_PROMPT;
-  return `${BASE_SYSTEM_PROMPT}\n\n${libraryBlock}`;
+  if (!libraryBlock) return base;
+  return `${base}\n\n${libraryBlock}`;
 }
 
 const OUTPUT_SCHEMA = {
@@ -201,6 +205,7 @@ function formatProblemForPrompt(p: ClassifierInputProblem): string {
 export async function classifyProblems(
   problems: ClassifierInputProblem[],
   lessonTitle: string,
+  gradeLevel: number,
   existingConcepts: ClassifierLibraryConcept[] = [],
   libraryMode: LibraryMode = "full"
 ): Promise<ClassifierResult> {
@@ -209,7 +214,7 @@ export async function classifyProblems(
   }
 
   const client = new Anthropic();
-  const systemPrompt = buildSystemPrompt(existingConcepts, libraryMode);
+  const systemPrompt = buildSystemPrompt(gradeLevel, existingConcepts, libraryMode);
 
   const userPrompt = [
     `Lesson: ${lessonTitle}`,

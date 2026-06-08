@@ -62,10 +62,18 @@ def _call_classifier(examples: list[dict]) -> dict[int, list[dict[str, Any]]]:
         }
         for ex in examples
     ]
+    # All golden v1 examples come from a single lesson, so they share a grade.
+    # Read from the first example's input rather than hardcoding so the eval
+    # keeps working when golden_v2 spans multiple lessons / grades.
+    grade_level = int(examples[0]["input"]["grade_level"])
     response = httpx.post(
         f"{MATHESIS_API_URL}/api/classify/run",
         headers={"Authorization": f"Bearer {MATHESIS_API_KEY}"},
-        json={"lessonTitle": LESSON_TITLE, "problems": problems},
+        json={
+            "lessonTitle": LESSON_TITLE,
+            "gradeLevel": grade_level,
+            "problems": problems,
+        },
         timeout=180.0,
     )
     response.raise_for_status()

@@ -42,6 +42,14 @@ export async function POST(request: NextRequest) {
   if (!lesson) {
     return NextResponse.json({ error: "Lesson not found" }, { status: 404 });
   }
+  if (lesson.gradeLevel == null) {
+    return NextResponse.json(
+      {
+        error: `Lesson ${lesson.id} is missing grade_level. Set it on the lesson before classifying.`,
+      },
+      { status: 400 }
+    );
+  }
 
   const problems = await db()
     .select()
@@ -92,6 +100,7 @@ export async function POST(request: NextRequest) {
     const result = await classifyProblems(
       classifierInput,
       lesson.title,
+      lesson.gradeLevel,
       conceptLibrary,
       "names_only"
     );

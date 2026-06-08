@@ -76,11 +76,13 @@ def _call_classifier(
         }
         for ex in examples
     ]
+    grade_level = int(examples[0]["input"]["grade_level"])
     response = httpx.post(
         f"{MATHESIS_API_URL}/api/classify/run",
         headers={"Authorization": f"Bearer {MATHESIS_API_KEY}"},
         json={
             "lessonTitle": LESSON_TITLE,
+            "gradeLevel": grade_level,
             "libraryMode": library_mode,
             "problems": problems,
         },
