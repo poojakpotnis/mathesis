@@ -48,7 +48,7 @@ const DIFFICULTY_GUIDANCE: Record<GeneratorDifficulty, string> = {
 };
 
 function buildSystemPrompt(gradeLevel: number): string {
-  return `You are a math curriculum expert creating practice problems for a Grade ${gradeLevel} RSM (Russian School of Mathematics) student.
+  return `You are a math curriculum expert creating practice problems for a Grade ${gradeLevel} student.
 
 Your task: generate practice problems that exercise the given concepts, modeled after the source example problems where provided.
 
