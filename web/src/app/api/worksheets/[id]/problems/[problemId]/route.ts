@@ -1,13 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
-import { and, eq } from "drizzle-orm";
 import { z } from "zod";
-import { db } from "@/lib/db/client";
-import { generatedProblems } from "@/lib/db/schema";
+import { setProblemVerificationAction } from "@/lib/actions/worksheets";
 
 export const dynamic = "force-dynamic";
 
 const PatchSchema = z.object({
-  verificationStatus: z.enum(["verified", "flagged"]),
+  verificationStatus: z.enum([
+    "verified",
+    "flagged",
+    "approved",
+    "confirmed_flagged",
+  ]),
+  reason: z.string().max(1000).optional(),
 });
 
 export async function PATCH(
@@ -35,23 +39,23 @@ export async function PATCH(
     );
   }
 
-  const updated = await db()
-    .update(generatedProblems)
-    .set({ verificationStatus: parsed.data.verificationStatus })
-    .where(
-      and(
-        eq(generatedProblems.id, problemId),
-        eq(generatedProblems.worksheetId, worksheetId)
-      )
-    )
-    .returning({
-      id: generatedProblems.id,
-      verificationStatus: generatedProblems.verificationStatus,
-    });
+  // Route through the server action so this API and the UI dialog share one
+  // path — and any flagged -> approved/confirmed_flagged transition pushes
+  // a Phoenix annotation onto the verifier's span (Phase 5e).
+  const result = await setProblemVerificationAction(
+    worksheetId,
+    problemId,
+    parsed.data.verificationStatus,
+    parsed.data.reason
+  );
 
-  if (updated.length === 0) {
-    return NextResponse.json({ error: "Problem not found" }, { status: 404 });
+  if (!result.ok) {
+    return NextResponse.json({ error: result.error }, { status: 404 });
   }
 
-  return NextResponse.json(updated[0]);
+  return NextResponse.json({
+    id: problemId,
+    verificationStatus: parsed.data.verificationStatus,
+    annotation: result.annotation,
+  });
 }

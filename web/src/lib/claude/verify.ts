@@ -18,12 +18,24 @@ export type VerifyResult = {
   independentAnswer: string;
   normalizedExpected: string;
   normalizedIndependent: string;
+  // OTel IDs of the `mathesis.verify.solve` span (hex, no `0x` prefix).
+  // Persisted alongside the row so a later parent override can push a
+  // Phoenix annotation onto the exact verifier trace that produced this
+  // verdict.
+  verifySpanId: string;
+  verifyTraceId: string;
 };
 
 type SolveResponse = {
   answer: string;
   steps: string;
   confidence: number;
+};
+
+type SolveWithSpan = {
+  parsed: SolveResponse;
+  spanId: string;
+  traceId: string;
 };
 
 function buildSystemPrompt(gradeLevel: number): string {
@@ -76,14 +88,14 @@ export async function verifyProblem(input: VerifyInput): Promise<VerifyResult> {
     "Solve this problem independently and return your answer.",
   ].join("\n");
 
-  const solved = await llmSpan(
+  const solved = await llmSpan<SolveWithSpan>(
     "mathesis.verify.solve",
     {
       model: MODEL,
       systemPrompt,
       messages: [{ role: "user", content: userPrompt }],
     },
-    async () => {
+    async (span) => {
       const response = await client.messages.create({
         model: MODEL,
         max_tokens: 16000,
@@ -101,8 +113,9 @@ export async function verifyProblem(input: VerifyInput): Promise<VerifyResult> {
       }
 
       const parsed = JSON.parse(textBlock.text) as SolveResponse;
+      const ctx = span.spanContext();
       return {
-        result: parsed,
+        result: { parsed, spanId: ctx.spanId, traceId: ctx.traceId },
         output: {
           responseText: textBlock.text,
           inputTokens: response.usage.input_tokens,
@@ -113,19 +126,21 @@ export async function verifyProblem(input: VerifyInput): Promise<VerifyResult> {
   );
 
   const normalizedExpected = normalizeAnswer(input.expectedAnswer);
-  const normalizedIndependent = normalizeAnswer(solved.answer);
+  const normalizedIndependent = normalizeAnswer(solved.parsed.answer);
   const matches = normalizedExpected === normalizedIndependent;
 
   const verificationStatus: VerifyVerdict = matches ? "verified" : "flagged";
   const verificationDetails = matches
-    ? `Independent solve matched expected answer "${input.expectedAnswer}" (confidence ${solved.confidence.toFixed(2)}).`
-    : `MISMATCH: expected "${input.expectedAnswer}" (normalized "${normalizedExpected}"), independent solve gave "${solved.answer}" (normalized "${normalizedIndependent}", confidence ${solved.confidence.toFixed(2)}). Steps: ${solved.steps}`;
+    ? `Independent solve matched expected answer "${input.expectedAnswer}" (confidence ${solved.parsed.confidence.toFixed(2)}).`
+    : `MISMATCH: expected "${input.expectedAnswer}" (normalized "${normalizedExpected}"), independent solve gave "${solved.parsed.answer}" (normalized "${normalizedIndependent}", confidence ${solved.parsed.confidence.toFixed(2)}). Steps: ${solved.parsed.steps}`;
 
   return {
     verificationStatus,
     verificationDetails,
-    independentAnswer: solved.answer,
+    independentAnswer: solved.parsed.answer,
     normalizedExpected,
     normalizedIndependent,
+    verifySpanId: solved.spanId,
+    verifyTraceId: solved.traceId,
   };
 }

@@ -13,7 +13,7 @@ export type PdfProblem = {
   correctAnswer: string;
   answerFormatType: string;
   solutionSteps: string | null;
-  verificationStatus: "verified" | "flagged";
+  verificationStatus: "verified" | "flagged" | "approved" | "confirmed_flagged";
 };
 
 export type PdfWorksheet = {
@@ -173,7 +173,8 @@ export function WorksheetPdf({ worksheet }: { worksheet: PdfWorksheet }) {
               {p.solutionSteps && (
                 <Text style={styles.solution}>{p.solutionSteps}</Text>
               )}
-              {p.verificationStatus === "flagged" && (
+              {(p.verificationStatus === "flagged" ||
+                p.verificationStatus === "confirmed_flagged") && (
                 <Text style={styles.flag}>
                   ⚠ Flagged — verifier disagreed with the generated answer.
                   Review before using.

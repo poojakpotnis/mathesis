@@ -40,8 +40,11 @@ export async function GET(request: NextRequest) {
     ? eq(worksheets.lessonId, parsed.data.lesson_id)
     : undefined;
 
-  const verifiedCol = sql<number>`sum(case when ${generatedProblems.verificationStatus} = 'verified' then 1 else 0 end)`;
-  const flaggedCol = sql<number>`sum(case when ${generatedProblems.verificationStatus} = 'flagged' then 1 else 0 end)`;
+  // Phase 5e: parent overrides land as 'approved' / 'confirmed_flagged' rather
+  // than flipping back to 'verified' / 'flagged'. Roll them up to keep the
+  // headline counts intuitive ("X verified" includes parent-approved).
+  const verifiedCol = sql<number>`sum(case when ${generatedProblems.verificationStatus} in ('verified', 'approved') then 1 else 0 end)`;
+  const flaggedCol = sql<number>`sum(case when ${generatedProblems.verificationStatus} in ('flagged', 'confirmed_flagged') then 1 else 0 end)`;
 
   const rows = await db()
     .select({

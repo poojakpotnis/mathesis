@@ -109,11 +109,17 @@ export const generatedProblems = sqliteTable("generated_problems", {
     () => scrapedProblems.id
   ),
   verificationStatus: text("verification_status", {
-    enum: ["verified", "flagged"],
+    enum: ["verified", "flagged", "approved", "confirmed_flagged"],
   })
     .notNull()
     .default("verified"),
   verificationDetails: text("verification_details"),
+  // OTel span/trace IDs of the mathesis.verify.solve span that produced this
+  // row's verification verdict. Used to push Phoenix annotations back onto
+  // the verifier's trace when a parent overrides the verdict (Phase 5e).
+  // Nullable: rows generated before Phase 5e shipped don't have them.
+  verifySpanId: text("verify_span_id"),
+  verifyTraceId: text("verify_trace_id"),
 });
 
 export const generatedProblemConcepts = sqliteTable(

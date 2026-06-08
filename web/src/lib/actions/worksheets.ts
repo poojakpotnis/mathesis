@@ -19,6 +19,7 @@ import {
 } from "@/lib/claude/generate";
 import { verifyProblem } from "@/lib/claude/verify";
 import { withSpan } from "@/lib/otel/tracer";
+import { pushSpanAnnotation } from "@/lib/phoenix/annotations";
 
 const MAX_EXAMPLES_PER_CONCEPT = 3;
 
@@ -232,6 +233,8 @@ export async function generateWorksheetAction(
       sourceScrapedProblemId: sourceId,
       verificationStatus: v.verificationStatus,
       verificationDetails: v.verificationDetails,
+      verifySpanId: v.verifySpanId,
+      verifyTraceId: v.verifyTraceId,
     };
   });
 
@@ -293,29 +296,84 @@ export async function generateWorksheetAction(
   );
 }
 
+export type ProblemVerificationStatus =
+  | "verified"
+  | "flagged"
+  | "approved"
+  | "confirmed_flagged";
+
 export async function setProblemVerificationAction(
   worksheetId: number,
   problemId: number,
-  status: "verified" | "flagged"
-): Promise<{ ok: true } | { ok: false; error: string }> {
+  status: ProblemVerificationStatus,
+  reason?: string
+): Promise<
+  | { ok: true; annotation?: { pushed: boolean; error?: string } }
+  | { ok: false; error: string }
+> {
   if (!Number.isInteger(worksheetId) || worksheetId <= 0) {
     return { ok: false, error: "Invalid worksheetId" };
   }
   if (!Number.isInteger(problemId) || problemId <= 0) {
     return { ok: false, error: "Invalid problemId" };
   }
-  const updated = await db()
-    .update(generatedProblems)
-    .set({ verificationStatus: status })
-    .where(
-      eq(generatedProblems.id, problemId)
-    )
-    .returning({ id: generatedProblems.id, worksheetId: generatedProblems.worksheetId });
 
-  const row = updated[0];
-  if (!row || row.worksheetId !== worksheetId) {
+  // Read the prior row so we can detect "flagged -> approved/confirmed_flagged"
+  // (the only transitions that push a Phoenix annotation per the Phase 5e
+  // design) and grab the verifier's span id for the annotation target.
+  const [prior] = await db()
+    .select({
+      id: generatedProblems.id,
+      worksheetId: generatedProblems.worksheetId,
+      verificationStatus: generatedProblems.verificationStatus,
+      verifySpanId: generatedProblems.verifySpanId,
+    })
+    .from(generatedProblems)
+    .where(eq(generatedProblems.id, problemId))
+    .limit(1);
+
+  if (!prior || prior.worksheetId !== worksheetId) {
     return { ok: false, error: "Problem not found in worksheet" };
   }
+
+  await db()
+    .update(generatedProblems)
+    .set({ verificationStatus: status })
+    .where(eq(generatedProblems.id, problemId));
+
+  const isOverride =
+    prior.verificationStatus === "flagged" &&
+    (status === "approved" || status === "confirmed_flagged");
+
+  let annotation: { pushed: boolean; error?: string } | undefined;
+  if (isOverride) {
+    if (!prior.verifySpanId) {
+      // Rows generated before Phase 5e shipped don't have a span id. Skip
+      // the push but still let the status update succeed.
+      annotation = {
+        pushed: false,
+        error: "No verify_span_id on this problem (pre-Phase-5e row).",
+      };
+    } else {
+      // score 1 = parent approved (verifier was wrong about flagging).
+      // score 0 = parent confirmed the flag (verifier was right). The exact
+      // semantics live alongside the schema/spec, not as a magic number.
+      const score = status === "approved" ? 1 : 0;
+      const res = await pushSpanAnnotation({
+        spanId: prior.verifySpanId,
+        name: "parent_review",
+        label: status,
+        score,
+        explanation: reason,
+        // One annotation per problem: re-clicks upsert in place rather than
+        // accumulating duplicates on the same verify span.
+        identifier: `problem-${problemId}`,
+        metadata: { worksheet_id: worksheetId, problem_id: problemId },
+      });
+      annotation = res.ok ? { pushed: true } : { pushed: false, error: res.error };
+    }
+  }
+
   revalidatePath(`/worksheets/${worksheetId}`);
-  return { ok: true };
+  return { ok: true, annotation };
 }

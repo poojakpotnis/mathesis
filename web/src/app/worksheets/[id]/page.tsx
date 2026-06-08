@@ -21,7 +21,10 @@ import {
   Sparkles,
   Download,
 } from "lucide-react";
-import { setProblemVerificationAction } from "@/lib/actions/worksheets";
+import {
+  setProblemVerificationAction,
+  type ProblemVerificationStatus,
+} from "@/lib/actions/worksheets";
 
 type Concept = {
   id: number;
@@ -41,7 +44,7 @@ type GeneratedProblem = {
   solutionSteps: string | null;
   difficultyRating: number | null;
   sourceScrapedProblemId: number | null;
-  verificationStatus: "verified" | "flagged";
+  verificationStatus: ProblemVerificationStatus;
   verificationDetails: string | null;
   concepts: Concept[];
 };
@@ -101,7 +104,12 @@ export default function WorksheetDetailPage() {
   }
 
   const { worksheet, problems } = data;
-  const verified = problems.filter((p) => p.verificationStatus === "verified").length;
+  // Parent overrides ("approved" / "confirmed_flagged") roll up with the
+  // automated verdicts for the headline counts.
+  const verified = problems.filter(
+    (p) =>
+      p.verificationStatus === "verified" || p.verificationStatus === "approved"
+  ).length;
   const flagged = problems.length - verified;
 
   return (
@@ -232,30 +240,24 @@ function AnswerKeyProblem({
   onApprove,
 }: {
   problem: GeneratedProblem;
-  onApprove: (status: "verified" | "flagged") => void;
+  onApprove: (status: ProblemVerificationStatus) => void;
 }) {
   const [pending, startTransition] = useTransition();
-  const isFlagged = problem.verificationStatus === "flagged";
+  const isFlagged =
+    problem.verificationStatus === "flagged" ||
+    problem.verificationStatus === "confirmed_flagged";
+  const isParentReviewed =
+    problem.verificationStatus === "approved" ||
+    problem.verificationStatus === "confirmed_flagged";
 
-  function approve() {
+  function setStatus(status: ProblemVerificationStatus) {
     startTransition(async () => {
       const res = await setProblemVerificationAction(
         problem.worksheetId,
         problem.id,
-        "verified"
+        status
       );
-      if (res.ok) onApprove("verified");
-    });
-  }
-
-  function reflag() {
-    startTransition(async () => {
-      const res = await setProblemVerificationAction(
-        problem.worksheetId,
-        problem.id,
-        "flagged"
-      );
-      if (res.ok) onApprove("flagged");
+      if (res.ok) onApprove(status);
     });
   }
 
@@ -309,27 +311,65 @@ function AnswerKeyProblem({
                   className="text-[10px] border-warning/40 text-warning gap-1"
                 >
                   <AlertTriangle className="w-3 h-3" />
-                  Flagged — verifier disagreed
+                  {problem.verificationStatus === "confirmed_flagged"
+                    ? "Confirmed flagged"
+                    : "Flagged — verifier disagreed"}
                 </Badge>
-                <Button size="xs" onClick={approve} disabled={pending}>
-                  Approve as correct
-                </Button>
+                {problem.verificationStatus === "flagged" && (
+                  <>
+                    <Button
+                      size="xs"
+                      onClick={() => setStatus("approved")}
+                      disabled={pending}
+                    >
+                      Approve as correct
+                    </Button>
+                    <Button
+                      size="xs"
+                      variant="outline"
+                      onClick={() => setStatus("confirmed_flagged")}
+                      disabled={pending}
+                    >
+                      Confirm flagged
+                    </Button>
+                  </>
+                )}
+                {problem.verificationStatus === "confirmed_flagged" && (
+                  <Button
+                    size="xs"
+                    variant="ghost"
+                    onClick={() => setStatus("flagged")}
+                    disabled={pending}
+                  >
+                    Undo
+                  </Button>
+                )}
               </>
             ) : (
               <>
-                <Badge variant="outline" className="text-[10px] gap-1 text-success border-success/30">
+                <Badge
+                  variant="outline"
+                  className="text-[10px] gap-1 text-success border-success/30"
+                >
                   <CheckCircle2 className="w-3 h-3" />
-                  Verified
+                  {problem.verificationStatus === "approved"
+                    ? "Approved"
+                    : "Verified"}
                 </Badge>
                 <Button
                   size="xs"
                   variant="ghost"
-                  onClick={reflag}
+                  onClick={() => setStatus("flagged")}
                   disabled={pending}
                 >
                   Re-flag
                 </Button>
               </>
+            )}
+            {isParentReviewed && (
+              <Badge variant="outline" className="text-[10px] text-muted-foreground">
+                parent reviewed
+              </Badge>
             )}
             {problem.concepts.map((c) => (
               <Badge key={c.id} variant="secondary" className="text-[10px] font-normal">
