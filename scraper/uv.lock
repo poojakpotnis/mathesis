@@ -1350,6 +1350,7 @@ name = "mathesis-scraper"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "anthropic" },
     { name = "arize-phoenix" },
     { name = "click" },
     { name = "httpx" },
@@ -1362,6 +1363,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "anthropic", specifier = ">=0.106.0" },
     { name = "arize-phoenix", specifier = ">=10.0" },
     { name = "click", specifier = ">=8.1" },
     { name = "httpx", specifier = ">=0.28" },
