@@ -103,7 +103,7 @@ def _parse_tags(raw: Any) -> list[str]:
     return []
 
 
-def _concept_match(output: dict[str, Any], expected: dict[str, Any]) -> dict[str, Any]:
+def concept_match(output: dict[str, Any], expected: dict[str, Any]) -> dict[str, Any]:
     top = (output or {}).get("top_concept") or ""
     primary = (expected or {}).get("primary_concept") or ""
     expected_tags = _parse_tags((expected or {}).get("expected_concept_tags"))
@@ -184,7 +184,7 @@ def run_eval(
     experiment = client.experiments.run_experiment(
         dataset=dataset,
         task=task,
-        evaluators=[_concept_match],
+        evaluators=[concept_match],
         experiment_name=experiment_name,
         experiment_description=experiment_description,
         experiment_metadata=metadata,
@@ -194,7 +194,7 @@ def run_eval(
     rows = []
     for ex in dataset.examples:
         out = task(ex)
-        ev = _concept_match(out, ex["output"])
+        ev = concept_match(out, ex["output"])
         rows.append(
             {
                 "rsm": ex["metadata"]["rsm_problem_number"],
