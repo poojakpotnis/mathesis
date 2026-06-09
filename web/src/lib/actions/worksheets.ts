@@ -11,6 +11,8 @@ import {
   worksheets,
   generatedProblems,
   generatedProblemConcepts,
+  scores,
+  conceptMastery,
 } from "@/lib/db/schema";
 import {
   generateProblems,
@@ -430,4 +432,204 @@ export async function setProblemVerificationAction(
 
   revalidatePath(`/worksheets/${worksheetId}`);
   return { ok: true, annotation };
+}
+
+export type MasteryLevel = "not_started" | "learning" | "practicing" | "mastered";
+
+// Threshold rule (Phase 6): not_started -> learning (any attempt)
+// -> practicing (>=5 attempts AND >=70% accuracy)
+// -> mastered (>=10 attempts AND >=85% accuracy AND last 3 attempts all correct).
+// Demotes back down if those thresholds stop holding (e.g. a streak break drops
+// "mastered" to "practicing"). Conservative: a kid who guesses right twice then
+// blanks shouldn't show "mastered".
+function computeMasteryLevel(
+  totalAttempted: number,
+  totalCorrect: number,
+  recentResults: boolean[] // most-recent-first, length<=3
+): MasteryLevel {
+  if (totalAttempted === 0) return "not_started";
+  const accuracy = totalCorrect / totalAttempted;
+  const lastThreeAllCorrect =
+    recentResults.length >= 3 && recentResults.slice(0, 3).every((r) => r);
+  if (totalAttempted >= 10 && accuracy >= 0.85 && lastThreeAllCorrect) {
+    return "mastered";
+  }
+  if (totalAttempted >= 5 && accuracy >= 0.7) {
+    return "practicing";
+  }
+  return "learning";
+}
+
+// Recompute concept_mastery rows from the full scores table for the given
+// concept ids. Idempotent: safe to call on every score submission, whether
+// the score is new or a correction. Slower than delta-arithmetic but
+// removes whole classes of double-counting bugs.
+async function recomputeConceptMastery(conceptIds: number[]): Promise<void> {
+  if (conceptIds.length === 0) return;
+
+  for (const conceptId of conceptIds) {
+    // Every score row whose problem maps to this concept.
+    const rows = await db()
+      .select({
+        isCorrect: scores.isCorrect,
+        scoredAt: scores.scoredAt,
+      })
+      .from(scores)
+      .innerJoin(
+        generatedProblemConcepts,
+        eq(scores.generatedProblemId, generatedProblemConcepts.generatedProblemId)
+      )
+      .where(eq(generatedProblemConcepts.conceptId, conceptId));
+
+    const totalAttempted = rows.length;
+    const totalCorrect = rows.filter((r) => r.isCorrect).length;
+    const sorted = [...rows].sort((a, b) =>
+      b.scoredAt.localeCompare(a.scoredAt)
+    );
+    const recentResults = sorted.slice(0, 3).map((r) => r.isCorrect);
+    const lastAttemptedAt = sorted[0]?.scoredAt ?? null;
+
+    // currentStreak: count of consecutive correct answers walking backward
+    // from most recent. Resets to 0 on any wrong.
+    let currentStreak = 0;
+    for (const r of sorted) {
+      if (r.isCorrect) currentStreak += 1;
+      else break;
+    }
+
+    const masteryLevel = computeMasteryLevel(
+      totalAttempted,
+      totalCorrect,
+      recentResults
+    );
+
+    const [existing] = await db()
+      .select({ id: conceptMastery.id })
+      .from(conceptMastery)
+      .where(eq(conceptMastery.conceptId, conceptId))
+      .limit(1);
+
+    if (existing) {
+      await db()
+        .update(conceptMastery)
+        .set({
+          totalAttempted,
+          totalCorrect,
+          currentStreak,
+          lastAttemptedAt,
+          masteryLevel,
+        })
+        .where(eq(conceptMastery.id, existing.id));
+    } else {
+      await db().insert(conceptMastery).values({
+        conceptId,
+        totalAttempted,
+        totalCorrect,
+        currentStreak,
+        lastAttemptedAt,
+        masteryLevel,
+      });
+    }
+  }
+}
+
+export type SubmitScoreResult =
+  | {
+      ok: true;
+      totalCorrect: number;
+      totalAttempted: number;
+      worksheetStatus: "in_progress" | "scored";
+    }
+  | { ok: false; error: string };
+
+export async function submitScoreAction(
+  worksheetId: number,
+  problemId: number,
+  isCorrect: boolean,
+  parentNotes?: string
+): Promise<SubmitScoreResult> {
+  if (!Number.isInteger(worksheetId) || worksheetId <= 0) {
+    return { ok: false, error: "Invalid worksheetId" };
+  }
+  if (!Number.isInteger(problemId) || problemId <= 0) {
+    return { ok: false, error: "Invalid problemId" };
+  }
+
+  const [problem] = await db()
+    .select({
+      id: generatedProblems.id,
+      worksheetId: generatedProblems.worksheetId,
+    })
+    .from(generatedProblems)
+    .where(eq(generatedProblems.id, problemId))
+    .limit(1);
+  if (!problem || problem.worksheetId !== worksheetId) {
+    return { ok: false, error: "Problem not found in worksheet" };
+  }
+
+  const scoredAt = new Date().toISOString();
+
+  // Upsert: one score row per problem. Re-submission overwrites.
+  const [existing] = await db()
+    .select({ id: scores.id })
+    .from(scores)
+    .where(eq(scores.generatedProblemId, problemId))
+    .limit(1);
+
+  if (existing) {
+    await db()
+      .update(scores)
+      .set({
+        isCorrect,
+        scoredAt,
+        parentNotes: parentNotes ?? null,
+      })
+      .where(eq(scores.id, existing.id));
+  } else {
+    await db().insert(scores).values({
+      worksheetId,
+      generatedProblemId: problemId,
+      isCorrect,
+      scoredAt,
+      parentNotes: parentNotes ?? null,
+    });
+  }
+
+  // Recompute worksheet rollup from all scores for this worksheet.
+  const allScores = await db()
+    .select({ isCorrect: scores.isCorrect })
+    .from(scores)
+    .where(eq(scores.worksheetId, worksheetId));
+  const totalAttempted = allScores.length;
+  const totalCorrect = allScores.filter((s) => s.isCorrect).length;
+
+  const [ws] = await db()
+    .select({ totalProblems: worksheets.totalProblems })
+    .from(worksheets)
+    .where(eq(worksheets.id, worksheetId))
+    .limit(1);
+
+  const worksheetStatus: "in_progress" | "scored" =
+    ws && totalAttempted >= ws.totalProblems ? "scored" : "in_progress";
+
+  await db()
+    .update(worksheets)
+    .set({
+      totalCorrect,
+      totalAttempted,
+      status: worksheetStatus,
+      scoredAt: worksheetStatus === "scored" ? scoredAt : null,
+    })
+    .where(eq(worksheets.id, worksheetId));
+
+  // Recompute concept_mastery for every concept linked to this problem.
+  const linkedConceptIds = await db()
+    .select({ conceptId: generatedProblemConcepts.conceptId })
+    .from(generatedProblemConcepts)
+    .where(eq(generatedProblemConcepts.generatedProblemId, problemId));
+  await recomputeConceptMastery(linkedConceptIds.map((r) => r.conceptId));
+
+  revalidatePath(`/worksheets/${worksheetId}`);
+  revalidatePath("/");
+  return { ok: true, totalCorrect, totalAttempted, worksheetStatus };
 }

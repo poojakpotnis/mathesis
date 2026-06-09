@@ -20,9 +20,12 @@ import {
   FileText,
   Sparkles,
   Download,
+  XCircle,
+  Pencil,
 } from "lucide-react";
 import {
   setProblemVerificationAction,
+  submitScoreAction,
   type ProblemVerificationStatus,
 } from "@/lib/actions/worksheets";
 
@@ -31,6 +34,12 @@ type Concept = {
   name: string;
   displayName: string;
   category: string;
+};
+
+type ProblemScore = {
+  isCorrect: boolean;
+  parentNotes: string | null;
+  scoredAt: string;
 };
 
 type GeneratedProblem = {
@@ -47,6 +56,7 @@ type GeneratedProblem = {
   verificationStatus: ProblemVerificationStatus;
   verificationDetails: string | null;
   concepts: Concept[];
+  score: ProblemScore | null;
 };
 
 type Worksheet = {
@@ -175,6 +185,7 @@ export default function WorksheetDetailPage() {
         <TabsList className="print:hidden">
           <TabsTrigger value="worksheet">Worksheet</TabsTrigger>
           <TabsTrigger value="answers">Answer key</TabsTrigger>
+          <TabsTrigger value="score">Score</TabsTrigger>
         </TabsList>
 
         <TabsContent value="worksheet" className="mt-6">
@@ -209,7 +220,217 @@ export default function WorksheetDetailPage() {
             ))}
           </div>
         </TabsContent>
+
+        <TabsContent value="score" className="mt-6">
+          <Separator className="mb-6 print:hidden" />
+          <ScoreSummary
+            problems={problems}
+            worksheetStatus={worksheet.status}
+            scoredAt={worksheet.scoredAt}
+          />
+          <div className="space-y-4 mt-6">
+            {problems.map((p) => (
+              <ScoreProblem
+                key={p.id}
+                problem={p}
+                onScored={(score) => {
+                  setData((prev) =>
+                    prev
+                      ? {
+                          ...prev,
+                          problems: prev.problems.map((q) =>
+                            q.id === p.id ? { ...q, score } : q
+                          ),
+                        }
+                      : prev
+                  );
+                }}
+              />
+            ))}
+          </div>
+        </TabsContent>
       </Tabs>
+    </div>
+  );
+}
+
+function ScoreSummary({
+  problems,
+  worksheetStatus,
+  scoredAt,
+}: {
+  problems: GeneratedProblem[];
+  worksheetStatus: string;
+  scoredAt: string | null;
+}) {
+  const scored = problems.filter((p) => p.score !== null).length;
+  const correct = problems.filter((p) => p.score?.isCorrect).length;
+  const remaining = problems.length - scored;
+  const isComplete = worksheetStatus === "scored";
+  const accuracy = scored > 0 ? Math.round((correct / scored) * 100) : 0;
+
+  return (
+    <div className="rounded-lg border border-border bg-card px-5 py-4 print:hidden">
+      <div className="flex items-center justify-between gap-4 flex-wrap">
+        <div>
+          <p className="text-xs uppercase tracking-wider text-muted-foreground">
+            Progress
+          </p>
+          <p className="text-2xl text-foreground mt-1 tabular-nums">
+            {scored} <span className="text-muted-foreground text-base">/ {problems.length} scored</span>
+          </p>
+        </div>
+        <div>
+          <p className="text-xs uppercase tracking-wider text-muted-foreground">
+            Correct
+          </p>
+          <p className="text-2xl text-success mt-1 tabular-nums">
+            {correct}
+            <span className="text-muted-foreground text-base"> ({accuracy}%)</span>
+          </p>
+        </div>
+        <div>
+          <p className="text-xs uppercase tracking-wider text-muted-foreground">
+            Status
+          </p>
+          {isComplete ? (
+            <Badge className="mt-2" variant="default">
+              Complete
+            </Badge>
+          ) : remaining === 0 ? (
+            <Badge className="mt-2" variant="default">
+              All scored
+            </Badge>
+          ) : (
+            <Badge className="mt-2" variant="outline">
+              {remaining} left
+            </Badge>
+          )}
+          {scoredAt && (
+            <p className="text-[11px] text-muted-foreground mt-1">
+              last update {new Date(scoredAt).toLocaleString()}
+            </p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ScoreProblem({
+  problem,
+  onScored,
+}: {
+  problem: GeneratedProblem;
+  onScored: (score: ProblemScore) => void;
+}) {
+  const [pending, startTransition] = useTransition();
+  const [notes, setNotes] = useState(problem.score?.parentNotes ?? "");
+  const [notesOpen, setNotesOpen] = useState(false);
+
+  function submit(isCorrect: boolean) {
+    startTransition(async () => {
+      const res = await submitScoreAction(
+        problem.worksheetId,
+        problem.id,
+        isCorrect,
+        notes.trim() || undefined
+      );
+      if (res.ok) {
+        onScored({
+          isCorrect,
+          parentNotes: notes.trim() || null,
+          scoredAt: new Date().toISOString(),
+        });
+      }
+    });
+  }
+
+  const score = problem.score;
+  const correctBtnActive = score?.isCorrect === true;
+  const wrongBtnActive = score?.isCorrect === false;
+
+  return (
+    <div
+      className={`border rounded-lg px-5 py-4 ${
+        score
+          ? score.isCorrect
+            ? "border-success/30 bg-success/5"
+            : "border-warning/30 bg-warning/5"
+          : "border-border bg-card"
+      }`}
+    >
+      <div className="flex items-start gap-4">
+        <span
+          className="text-sm font-medium text-primary/70 min-w-[2.5rem] pt-0.5 tabular-nums"
+          style={{ fontFamily: "var(--font-heading)" }}
+        >
+          {problem.displayOrder}.
+        </span>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap">
+            {problem.problemText}
+          </p>
+
+          <div className="mt-3 text-sm">
+            <span className="text-xs uppercase tracking-wider text-muted-foreground mr-2">
+              Answer
+            </span>
+            <span className="font-medium text-foreground">
+              {problem.correctAnswer}
+            </span>
+          </div>
+
+          <div className="mt-3 flex items-center gap-2 flex-wrap">
+            <Button
+              size="xs"
+              variant={correctBtnActive ? "default" : "outline"}
+              onClick={() => submit(true)}
+              disabled={pending}
+              className={correctBtnActive ? "bg-success hover:bg-success/90 text-white" : ""}
+            >
+              <CheckCircle2 className="w-3.5 h-3.5" />
+              Correct
+            </Button>
+            <Button
+              size="xs"
+              variant={wrongBtnActive ? "default" : "outline"}
+              onClick={() => submit(false)}
+              disabled={pending}
+              className={wrongBtnActive ? "bg-warning hover:bg-warning/90 text-white" : ""}
+            >
+              <XCircle className="w-3.5 h-3.5" />
+              Wrong
+            </Button>
+            <Button
+              size="xs"
+              variant="ghost"
+              onClick={() => setNotesOpen((v) => !v)}
+            >
+              <Pencil className="w-3.5 h-3.5" />
+              {notes ? "Notes ✓" : "Notes"}
+            </Button>
+            {score && (
+              <span className="text-[11px] text-muted-foreground ml-auto">
+                {score.isCorrect ? "✓ correct" : "✗ wrong"} ·{" "}
+                {new Date(score.scoredAt).toLocaleString()}
+              </span>
+            )}
+          </div>
+
+          {notesOpen && (
+            <textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              onBlur={() => {
+                if (score) submit(score.isCorrect);
+              }}
+              placeholder="What did your kid struggle with? (saves on blur)"
+              className="mt-3 w-full min-h-[60px] rounded-md border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
+            />
+          )}
+        </div>
+      </div>
     </div>
   );
 }

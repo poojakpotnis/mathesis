@@ -10,9 +10,9 @@ import {
 } from "lucide-react";
 
 const navItems = [
-  { href: "/", label: "Lessons", icon: BookOpen },
+  { href: "/", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/lessons", label: "Lessons", icon: BookOpen },
   { href: "/worksheets", label: "Worksheets", icon: FileText },
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/concepts", label: "Concepts", icon: Sparkles },
 ];
 
@@ -40,7 +40,7 @@ export function Sidebar() {
           {navItems.map(({ href, label, icon: Icon }) => {
             const isActive =
               href === "/"
-                ? pathname === "/" || pathname.startsWith("/lessons")
+                ? pathname === "/"
                 : pathname.startsWith(href);
 
             return (

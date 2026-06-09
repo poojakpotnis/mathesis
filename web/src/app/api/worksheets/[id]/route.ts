@@ -7,6 +7,7 @@ import {
   generatedProblems,
   generatedProblemConcepts,
   concepts,
+  scores,
 } from "@/lib/db/schema";
 
 export const dynamic = "force-dynamic";
@@ -71,6 +72,29 @@ export async function GET(
         .where(inArray(generatedProblemConcepts.generatedProblemId, problemIds))
     : [];
 
+  const scoreRows = problemIds.length
+    ? await db()
+        .select({
+          generatedProblemId: scores.generatedProblemId,
+          isCorrect: scores.isCorrect,
+          parentNotes: scores.parentNotes,
+          scoredAt: scores.scoredAt,
+        })
+        .from(scores)
+        .where(inArray(scores.generatedProblemId, problemIds))
+    : [];
+
+  const scoreByProblemId = new Map(
+    scoreRows.map((s) => [
+      s.generatedProblemId,
+      {
+        isCorrect: s.isCorrect,
+        parentNotes: s.parentNotes,
+        scoredAt: s.scoredAt,
+      },
+    ])
+  );
+
   const problemsWithConcepts = problems.map((p) => ({
     ...p,
     concepts: conceptRows
@@ -81,6 +105,7 @@ export async function GET(
         displayName: c.conceptDisplayName,
         category: c.conceptCategory,
       })),
+    score: scoreByProblemId.get(p.id) ?? null,
   }));
 
   return NextResponse.json({ worksheet, problems: problemsWithConcepts });

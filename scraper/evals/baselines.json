@@ -1,4 +1,19 @@
 {
+  "problem_quality_eval": {
+    "level_match_mean": 4.8154,
+    "on_concept_mean": 5.0,
+    "well_formed_mean": 4.9538,
+    "pass_rate": 0.9846,
+    "n": 65,
+    "tolerances": {
+      "level_match_mean": 0.1,
+      "on_concept_mean": 0.1,
+      "well_formed_mean": 0.1,
+      "pass_rate": 0.05
+    },
+    "judge_model": "claude-opus-4-7",
+    "recorded_at": "2026-06-09T05:34:43+00:00"
+  },
   "concept_accuracy_eval": {
     "score": 1.0,
     "matches": 25,

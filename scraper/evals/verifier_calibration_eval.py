@@ -30,6 +30,9 @@ V1 caveats
   set grows. Not gated by `evals.gate` for the same reason.
 * Recall not computable: parents only review flagged problems; there is no
   ground truth on "verifier said verified, was it actually correct?"
+* Label discipline matters: see `scraper/evals/labeling_rubric.md` for what
+  counts as `approved` vs `confirmed_flagged`, especially on open-ended
+  problems where generator/verifier can disagree without either being wrong.
 """
 
 from __future__ import annotations
@@ -80,6 +83,9 @@ def run_eval() -> dict[str, Any]:
         "total_reviewed": total,
         "reviews": scored,
     }
+
+
+RUBRIC_PATH = Path(__file__).parent / "labeling_rubric.md"
 
 
 def _print_summary(result: dict[str, Any]) -> None:
@@ -135,6 +141,15 @@ def _print_summary(result: dict[str, Any]) -> None:
         "Phoenix annotations for these flags are visible under project "
         "`mathesis` → Spans → name=mathesis.verify.solve → Annotations tab."
     )
+    if RUBRIC_PATH.exists():
+        print()
+        print(
+            f"Labeling rubric: {RUBRIC_PATH.relative_to(Path.cwd().parent) if Path.cwd().name == 'scraper' else RUBRIC_PATH}"
+        )
+        print(
+            "  Refer to it when interpreting precision shifts — Phase 5g showed "
+            "labeling drift can fully account for a measured drop."
+        )
 
 
 def main() -> None:

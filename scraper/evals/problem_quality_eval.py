@@ -191,6 +191,94 @@ def _scored_row(problem: dict[str, Any], verdict: JudgeVerdict) -> dict[str, Any
     }
 
 
+AXES = ("level_match", "on_concept", "well_formed")
+
+
+def aggregate_metrics(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """Roll per-row verdicts up to the metrics the gate compares against.
+
+    Returns means per axis, the overall pass-rate (all three axes >= 4),
+    and N. Pure function: same input always returns same output, easy to
+    snapshot into baselines.json.
+    """
+    if not rows:
+        return {
+            "n": 0,
+            "level_match_mean": 0.0,
+            "on_concept_mean": 0.0,
+            "well_formed_mean": 0.0,
+            "pass_rate": 0.0,
+        }
+    n = len(rows)
+    return {
+        "n": n,
+        "level_match_mean": sum(r["level_match"]["score"] for r in rows) / n,
+        "on_concept_mean": sum(r["on_concept"]["score"] for r in rows) / n,
+        "well_formed_mean": sum(r["well_formed"]["score"] for r in rows) / n,
+        "pass_rate": sum(
+            1 for r in rows if all(r[a]["score"] >= 4 for a in AXES)
+        ) / n,
+    }
+
+
+def run_eval(
+    *,
+    limit: int | None = None,
+    out_path: Path | None = None,
+    progress=None,
+) -> dict[str, Any]:
+    """Headless run for the gate.
+
+    Same code path as the CLI's main() but returns the metrics dict instead
+    of printing. Costs the same as the CLI (~$3-5 for the full corpus on
+    Opus 4.7 + adaptive thinking); callers are responsible for deciding
+    whether to invoke it. progress is an optional `lambda msg: ...`
+    callback so the gate can prefix its own logs.
+    """
+    if not MATHESIS_API_KEY:
+        raise RuntimeError("MATHESIS_API_KEY not set in scraper/.env")
+    if not ANTHROPIC_API_KEY:
+        raise RuntimeError("ANTHROPIC_API_KEY not set in scraper/.env")
+
+    def log(msg: str) -> None:
+        if progress is not None:
+            progress(msg)
+
+    log(f"fetching generated problems from {MATHESIS_API_URL}...")
+    problems = fetch_problems()
+    if limit is not None:
+        problems = problems[:limit]
+    log(f"scoring {len(problems)} problems with {JUDGE_MODEL}...")
+
+    client = anthropic.Anthropic()
+    rows: list[dict[str, Any]] = []
+    for i, problem in enumerate(problems, 1):
+        try:
+            verdict = judge_problem(client, problem)
+        except Exception as exc:
+            log(
+                f"  [{i:>3}/{len(problems)}] pid={problem['generated_problem_id']} ERROR: {exc}"
+            )
+            continue
+        rows.append(_scored_row(problem, verdict))
+
+    metrics = aggregate_metrics(rows)
+
+    if out_path is not None:
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        with out_path.open("w") as f:
+            for r in rows:
+                f.write(json.dumps(r) + "\n")
+        log(f"wrote {len(rows)} verdicts to {out_path}")
+
+    return {
+        "metrics": metrics,
+        "rows": rows,
+        "judge_model": JUDGE_MODEL,
+        "recorded_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+    }
+
+
 def _print_summary(rows: list[dict[str, Any]]) -> None:
     if not rows:
         print("No problems scored.")
