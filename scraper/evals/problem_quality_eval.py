@@ -5,7 +5,7 @@ What this does
 Scores each generated worksheet problem on three axes using a Claude Opus 4.7
 judge with adaptive thinking and structured output:
 
-  - grade_appropriate — is the difficulty/wording right for the target grade?
+  - level_match — does the generated problem sit at the same level as same-lesson RSM references?
   - on_concept        — does solving it actually require the named concept?
   - well_formed       — is the problem itself clean (unambiguous, single-answer)?
 
@@ -62,43 +62,50 @@ ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 
 JUDGE_MODEL = "claude-opus-4-7"
 
-JUDGE_SYSTEM = """You are evaluating math worksheet problems for a student in a specific grade. \
-For each problem you'll be given the problem text, the expected answer, the solution steps, \
-the target grade level, and the concept(s) the problem is supposed to exercise.
+JUDGE_SYSTEM = """You are evaluating generated math worksheet problems that supplement a \
+specific curriculum. For each generated problem, you will see real problems from the same \
+curriculum lesson, shown as REFERENCE PROBLEMS. Those references DEFINE the level the \
+generated problem should match. Do not import any external grade-level expectations \
+(Common Core, age norms, generic K-12 standards) — anchor entirely to the references.
 
-Score the problem on three dimensions on a 1-5 scale. Be calibrated: most decent problems \
-should land in the 3-5 range. Reserve 1 for genuine breakage and 2 for problems that need rewriting.
+Score on three dimensions on a 1-5 scale. Be calibrated: most decent problems should land \
+in the 3-5 range. Reserve 1 for genuine breakage and 2 for problems that need rewriting.
 
-GRADE-APPROPRIATE (does the difficulty and language match the target grade?)
- 5 — Perfectly calibrated. Numbers, vocabulary, and required reasoning all fit the grade level. \
-For elementary grades that means arithmetic, basic fractions, and informal algebraic thinking; \
-no formal algebra, no symbols a student at that grade has not been taught.
- 4 — Mostly right. One element is slightly above or below grade level (e.g., one larger-than-typical \
-number, slightly advanced phrasing) but a typical student at the target grade can still solve it.
- 3 — Notable mismatch but a student at the target grade could solve it with effort.
- 2 — Significantly mismatched. Either trivial for the target grade or requires concepts not yet taught.
- 1 — Wildly inappropriate for the target grade.
+LEVEL-MATCH (does the generated problem sit at the same level as the reference problems?)
+ 5 — Same level. A student who can do the references can do this; nothing in the generated \
+problem is meaningfully harder or easier than what the references show. Use of the same \
+notation, similar number sizes, and similar reasoning depth is fine and expected.
+ 4 — Same ballpark with a small drift — slightly larger numbers, one extra step, slightly \
+denser wording — but a student doing the references would handle it fine.
+ 3 — Noticeably out of range vs the references but still defensible as an extension or stretch.
+ 2 — Meaningfully easier or meaningfully harder than the references. Either trivial relative \
+to what the references demand, or requires technique not visible in any reference.
+ 1 — Wildly out of range. References are clearly at one level; the generated problem is \
+clearly at a very different level.
+
+When scoring level-match, ground your explanation in SPECIFIC comparisons to the references \
+(e.g., "references all use single-digit numerators; this uses 2x − 1" — not "feels harder"). \
+If a generated problem uses notation, structures, or solution techniques that ALSO appear in \
+the references, treat that as on-level by default — the references ARE the level.
 
 ON-CONCEPT (does the problem actually exercise the named concept?)
- 5 — Solving the problem REQUIRES the named concept. No alternate shortcut trivializes it.
- 4 — The named concept is the central mechanism, but a clever student might find a shortcut.
- 3 — The concept is involved but not central; another concept could also solve it.
- 2 — The concept is tangential — the problem is more naturally about a different topic.
- 1 — Wrong concept entirely. The problem does not meaningfully exercise the named concept.
+ 5 — Solving REQUIRES the named concept. No alternate shortcut trivializes it.
+ 4 — Central mechanism, but a clever student might find a shortcut.
+ 3 — Concept is involved but not central; another concept could also solve it.
+ 2 — Tangential — more naturally about a different topic.
+ 1 — Wrong concept entirely.
 
 WELL-FORMED (is the problem itself clean?)
- 5 — Unambiguous wording, consistent notation, single correct answer. If the prompt explicitly asks \
-for "find three values that satisfy …" or similar, any valid set is fine — that is not ambiguity.
- 4 — Solvable but has a minor ambiguity or notational quirk.
+ 5 — Unambiguous wording, consistent notation, single correct answer. If the prompt asks for \
+"find three values that satisfy …" or similar, any valid set is fine — not ambiguity.
+ 4 — Solvable but minor ambiguity or notational quirk.
  3 — Solvable with a generous reading; one place where a student might pause and guess at intent.
- 2 — Multiple reasonable interpretations leading to different answers, OR notation that would confuse \
-a student at the target grade.
- 1 — Contradictory premises, no valid solution, or asks for a single answer when multiple exist \
-without saying so.
+ 2 — Multiple reasonable interpretations leading to different answers, OR confusing notation.
+ 1 — Contradictory premises, no valid solution, or asks for one answer when multiple exist.
 
-For each axis, give the score and a 1-2 sentence explanation referencing SPECIFIC aspects of the \
-problem (e.g., "uses the number 247 which is reasonable for grade 4," not "the numbers seem fine"). \
-Do not pad — short, concrete explanations are better than long generic ones."""
+For each axis, give the score and a 1-2 sentence explanation referencing SPECIFIC aspects \
+of the problem (and, for level-match, specific aspects of the references). Do not pad — \
+short, concrete explanations beat long generic ones."""
 
 
 class AxisVerdict(BaseModel):
@@ -107,7 +114,7 @@ class AxisVerdict(BaseModel):
 
 
 class JudgeVerdict(BaseModel):
-    grade_appropriate: AxisVerdict
+    level_match: AxisVerdict
     on_concept: AxisVerdict
     well_formed: AxisVerdict
 
@@ -126,8 +133,20 @@ def _format_user_prompt(problem: dict[str, Any]) -> str:
     concept_lines = [
         f"  - {c['name']} ({c['displayName']})" for c in problem["concepts"]
     ] or ["  (none)"]
+    references = problem.get("reference_problems") or []
+    if references:
+        ref_block = "\n".join(
+            f"  [{r['problem_number']}] (concepts: {', '.join(r['concept_names']) or 'none'})\n"
+            f"      {r['problem_text']}"
+            for r in references
+        )
+    else:
+        ref_block = "  (no reference problems available for this lesson)"
     return (
-        f"Target grade: {problem['lesson_grade_level']}\n"
+        f"REFERENCE PROBLEMS from the same curriculum lesson \n"
+        f"(these are the calibration anchor for LEVEL-MATCH — they ARE the right level):\n"
+        f"{ref_block}\n\n"
+        f"=== Generated problem to evaluate ===\n"
         f"Source lesson: {problem['lesson_title']!r}\n"
         f"Named concept(s):\n" + "\n".join(concept_lines) + "\n\n"
         f"Problem text:\n{problem['problem_text']}\n\n"
@@ -163,7 +182,10 @@ def _scored_row(problem: dict[str, Any], verdict: JudgeVerdict) -> dict[str, Any
         "grade_level": problem["lesson_grade_level"],
         "problem_text": problem["problem_text"],
         "concept_names": [c["name"] for c in problem["concepts"]],
-        "grade_appropriate": verdict.grade_appropriate.model_dump(),
+        "reference_problem_numbers": [
+            r["problem_number"] for r in problem.get("reference_problems") or []
+        ],
+        "level_match": verdict.level_match.model_dump(),
         "on_concept": verdict.on_concept.model_dump(),
         "well_formed": verdict.well_formed.model_dump(),
     }
@@ -174,7 +196,7 @@ def _print_summary(rows: list[dict[str, Any]]) -> None:
         print("No problems scored.")
         return
 
-    axes = ("grade_appropriate", "on_concept", "well_formed")
+    axes = ("level_match", "on_concept", "well_formed")
     print()
     print(f"=== problem_quality_eval (N={len(rows)}, judge={JUDGE_MODEL}) ===")
     print()
@@ -197,14 +219,14 @@ def _print_summary(rows: list[dict[str, Any]]) -> None:
         by_ws[r["worksheet_id"]].append(r)
     print()
     print("Per-worksheet rollup:")
-    print(f"  {'ws':<4}{'N':<4}{'GA':<8}{'OC':<8}{'WF':<8}{'pass':<6}")
+    print(f"  {'ws':<4}{'N':<4}{'LM':<8}{'OC':<8}{'WF':<8}{'pass':<6}")
     for ws in sorted(by_ws):
         rs = by_ws[ws]
         means = {a: sum(r[a]["score"] for r in rs) / len(rs) for a in axes}
         pass_ws = sum(1 for r in rs if all(r[a]["score"] >= 4 for a in axes)) / len(rs) * 100
         print(
             f"  {ws:<4}{len(rs):<4}"
-            f"{means['grade_appropriate']:<8.2f}{means['on_concept']:<8.2f}{means['well_formed']:<8.2f}"
+            f"{means['level_match']:<8.2f}{means['on_concept']:<8.2f}{means['well_formed']:<8.2f}"
             f"{pass_ws:<6.0f}"
         )
 
@@ -264,7 +286,7 @@ def main() -> int:
         print(
             f"  [{i:>3}/{len(problems)}] pid={problem['generated_problem_id']:<4} "
             f"ws={problem['worksheet_id']:<3} "
-            f"GA={verdict.grade_appropriate.score} "
+            f"LM={verdict.level_match.score} "
             f"OC={verdict.on_concept.score} "
             f"WF={verdict.well_formed.score}"
         )
