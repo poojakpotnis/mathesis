@@ -17,6 +17,7 @@ import {
   type GeneratorInputConcept,
   type GeneratorDifficulty,
 } from "@/lib/claude/generate";
+import { partitionByDuplicates, type SourceProblem } from "@/lib/claude/dedupe";
 import { verifyProblem } from "@/lib/claude/verify";
 import { withSpan } from "@/lib/otel/tracer";
 import { pushSpanAnnotation } from "@/lib/phoenix/annotations";
@@ -175,15 +176,68 @@ export async function generateWorksheetAction(
     return { ok: false, error: "Generator returned no problems" };
   }
 
+  // Dedup against the full lesson source set. The Phase 5h v2 LLM judge
+  // surfaced ~5% verbatim duplicates of source problems; the generator's
+  // own sourceScrapedProblemId field is unreliable (the duplicates we
+  // observed all claimed a different source than the one they copied).
+  // Compare against every unique source problem text for this lesson.
+  const seenSourceIds = new Set<number>();
+  const lessonSourceProblems: SourceProblem[] = [];
+  for (const m of lessonMappings) {
+    if (!seenSourceIds.has(m.scrapedProblemId)) {
+      seenSourceIds.add(m.scrapedProblemId);
+      lessonSourceProblems.push({
+        id: m.scrapedProblemId,
+        problemText: m.problemText,
+      });
+    }
+  }
+
+  const firstPass = partitionByDuplicates(
+    genResult.problems,
+    lessonSourceProblems
+  );
+
+  let finalProblems = firstPass.accepted;
+  let regeneratedCount = 0;
+  if (firstPass.dropped.length > 0) {
+    const retry = await generateProblems({
+      concepts: selectedConcepts,
+      count: firstPass.dropped.length,
+      difficulty,
+      lessonTitle: lesson.title,
+      gradeLevel,
+      avoidProblems: lessonSourceProblems,
+    });
+    const retryPartition = partitionByDuplicates(
+      retry.problems,
+      lessonSourceProblems
+    );
+    finalProblems = [...firstPass.accepted, ...retryPartition.accepted];
+    regeneratedCount = retryPartition.accepted.length;
+  }
+
+  if (finalProblems.length === 0) {
+    return { ok: false, error: "Generator returned only duplicates of source problems" };
+  }
+
+  span.setAttributes({
+    "worksheet.dedup.initial_dropped": firstPass.dropped.length,
+    "worksheet.dedup.dropped_source_ids": JSON.stringify(
+      firstPass.dropped.map((d) => d.matchedSourceId)
+    ),
+    "worksheet.dedup.regenerated_count": regeneratedCount,
+  });
+
   // Child span around the verifier fan-out. All N parallel Anthropic
   // calls become siblings inside this span, so we can read "total verify
   // time" and "verifier cost per worksheet" at a glance in Phoenix.
   const verifications = await withSpan(
     "mathesis.worksheet.verify",
-    { "verify.problem_count": genResult.problems.length },
+    { "verify.problem_count": finalProblems.length },
     () =>
       Promise.all(
-        genResult.problems.map((p) =>
+        finalProblems.map((p) =>
           verifyProblem({
             problemText: p.problemText,
             expectedAnswer: p.correctAnswer,
@@ -206,7 +260,7 @@ export async function generateWorksheetAction(
       lessonId,
       title: `${lesson.title} — ${difficulty} (${count})`,
       createdAt,
-      totalProblems: genResult.problems.length,
+      totalProblems: finalProblems.length,
       focusConceptIds: focusConceptIds ? JSON.stringify(focusConceptIds) : null,
       skipConceptIds: skipConceptIds ? JSON.stringify(skipConceptIds) : null,
       difficultyLevel: difficulty,
@@ -214,7 +268,7 @@ export async function generateWorksheetAction(
     })
     .returning({ id: worksheets.id });
 
-  const problemRows = genResult.problems.map((p, idx) => {
+  const problemRows = finalProblems.map((p, idx) => {
     const v = verifications[idx];
     const sourceId =
       p.sourceScrapedProblemId !== null &&
@@ -247,8 +301,8 @@ export async function generateWorksheetAction(
     });
 
   const conceptMappings: { generatedProblemId: number; conceptId: number }[] = [];
-  for (let i = 0; i < genResult.problems.length; i++) {
-    const p = genResult.problems[i];
+  for (let i = 0; i < finalProblems.length; i++) {
+    const p = finalProblems[i];
     const inserted = insertedProblems.find((r) => r.displayOrder === i + 1);
     if (!inserted) continue;
     const seen = new Set<number>();
@@ -279,7 +333,7 @@ export async function generateWorksheetAction(
     "worksheet.id": worksheet.id,
     "worksheet.verified_count": verifiedCount,
     "worksheet.flagged_count": flaggedCount,
-    "worksheet.problems_generated": genResult.problems.length,
+    "worksheet.problems_generated": finalProblems.length,
     "worksheet.concept_mappings": conceptMappings.length,
   });
 

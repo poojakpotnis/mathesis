@@ -62,7 +62,7 @@ Guidelines:
 7. solutionSteps: a short worked solution (2-5 lines) the parent can use to grade and explain. Use plain text with ASCII math; one step per line separated by \\n. Set to null only if truly trivial.
 8. difficultyRating: integer 1-5. 1=easier than source, 3=matches source, 5=much harder.
 9. sourceScrapedProblemId: if you closely modeled this problem after one of the example problems, set this to that scraped_problem id. Otherwise null.
-10. Vary the surface form. Don't just change numbers — vary phrasing, contexts (word problems vs. pure computation), and presentation. The student should not feel they're solving the same problem 10 times.
+10. Vary the surface form. Don't just change numbers — vary phrasing, contexts (word problems vs. pure computation), and presentation. The student should not feel they're solving the same problem 10 times. You must NOT reproduce any source example problem verbatim; every generated problem must differ substantively (different numbers AND/OR different phrasing) from every source example.
 11. Every problem must be unambiguous, solvable with the listed concepts only, and have a single correct answer that you can verify yourself.`;
 }
 
@@ -156,8 +156,9 @@ export async function generateProblems(args: {
   difficulty: GeneratorDifficulty;
   lessonTitle: string;
   gradeLevel: number;
+  avoidProblems?: { id: number; problemText: string }[];
 }): Promise<GeneratorResult> {
-  const { concepts, count, difficulty, lessonTitle, gradeLevel } = args;
+  const { concepts, count, difficulty, lessonTitle, gradeLevel, avoidProblems } = args;
   const systemPrompt = buildSystemPrompt(gradeLevel);
   if (concepts.length === 0 || count <= 0) {
     return { problems: [] };
@@ -167,16 +168,26 @@ export async function generateProblems(args: {
 
   const conceptNamesAllowed = concepts.map((c) => c.name);
 
-  const userPrompt = [
+  const userPromptParts = [
     `Lesson: ${lessonTitle}`,
     `Number of problems to generate: ${count}`,
     `Difficulty target: ${difficulty} — ${DIFFICULTY_GUIDANCE[difficulty]}`,
     `Allowed concept names (use these exact strings in conceptNames): ${conceptNamesAllowed.join(", ")}`,
     "",
     concepts.map(formatConceptForPrompt).join("\n\n"),
-    "",
-    `Generate exactly ${count} problems following the guidelines.`,
-  ].join("\n");
+  ];
+  if (avoidProblems && avoidProblems.length > 0) {
+    userPromptParts.push("");
+    userPromptParts.push(
+      "CRITICAL: A previous attempt produced verbatim copies of source problems. Do NOT reproduce any of the following problems — every generated problem must differ substantively in numbers AND phrasing from each entry below:"
+    );
+    for (const p of avoidProblems) {
+      userPromptParts.push(`  [forbidden_id=${p.id}] ${p.problemText}`);
+    }
+  }
+  userPromptParts.push("");
+  userPromptParts.push(`Generate exactly ${count} problems following the guidelines.`);
+  const userPrompt = userPromptParts.join("\n");
 
   return llmSpan(
     "mathesis.generate.problems",
