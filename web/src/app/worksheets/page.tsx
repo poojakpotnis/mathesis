@@ -10,6 +10,7 @@ import {
   AlertTriangle,
   ChevronRight,
 } from "lucide-react";
+import { QuickGenerateButton } from "@/components/quick-generate-button";
 
 type WorksheetRow = {
   id: number;
@@ -44,17 +45,20 @@ export default function WorksheetsIndexPage() {
 
   return (
     <div>
-      <header className="mb-10">
-        <h2
-          className="text-3xl tracking-tight text-foreground"
-          style={{ fontFamily: "var(--font-heading)" }}
-        >
-          Worksheets
-        </h2>
-        <p className="text-muted-foreground mt-2 font-light">
-          Generated practice worksheets across all lessons. Open one to print or
-          enter scores.
-        </p>
+      <header className="mb-10 flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <h2
+            className="text-3xl tracking-tight text-foreground"
+            style={{ fontFamily: "var(--font-heading)" }}
+          >
+            Worksheets
+          </h2>
+          <p className="text-muted-foreground mt-2 font-light">
+            Generated practice worksheets across all lessons. Open one to print
+            or enter scores.
+          </p>
+        </div>
+        <QuickGenerateButton />
       </header>
 
       {loading ? (

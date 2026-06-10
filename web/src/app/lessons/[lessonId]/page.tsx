@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
@@ -53,6 +53,8 @@ type LessonDetail = {
 
 export default function LessonDetailPage() {
   const params = useParams();
+  const searchParams = useSearchParams();
+  const autoOpenGenerate = searchParams.get("generate") === "1";
   const [data, setData] = useState<LessonDetail | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -135,6 +137,7 @@ export default function LessonDetailPage() {
         {lesson.classificationStatus === "completed" && allConcepts.length > 0 && (
           <GenerateWorksheetDialog
             lessonId={lesson.id}
+            defaultOpen={autoOpenGenerate}
             concepts={allConcepts.map((c) => {
               const tagged = problems.filter((p) =>
                 p.concepts.some((pc) => pc.id === c.id)

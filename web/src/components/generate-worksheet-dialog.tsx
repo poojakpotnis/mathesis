@@ -39,12 +39,14 @@ const DIFFICULTIES: { value: Difficulty; label: string; help: string }[] = [
 export function GenerateWorksheetDialog({
   lessonId,
   concepts,
+  defaultOpen = false,
 }: {
   lessonId: number;
   concepts: Concept[];
+  defaultOpen?: boolean;
 }) {
   const router = useRouter();
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(defaultOpen);
   const [count, setCount] = useState(10);
   const [difficulty, setDifficulty] = useState<Difficulty>("match");
   const [focusIds, setFocusIds] = useState<Set<number>>(new Set());

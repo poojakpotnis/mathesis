@@ -12,6 +12,7 @@ import {
   Clock,
   ChevronRight,
 } from "lucide-react";
+import { QuickGenerateButton } from "@/components/quick-generate-button";
 
 type MasteryLevel = "not_started" | "learning" | "practicing" | "mastered";
 
@@ -89,16 +90,19 @@ export default function DashboardPage() {
 
   return (
     <div>
-      <header className="mb-10">
-        <h2
-          className="text-3xl tracking-tight text-foreground"
-          style={{ fontFamily: "var(--font-heading)" }}
-        >
-          Dashboard
-        </h2>
-        <p className="text-muted-foreground mt-2 font-light">
-          Practice activity and concept mastery overview.
-        </p>
+      <header className="mb-10 flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <h2
+            className="text-3xl tracking-tight text-foreground"
+            style={{ fontFamily: "var(--font-heading)" }}
+          >
+            Dashboard
+          </h2>
+          <p className="text-muted-foreground mt-2 font-light">
+            Practice activity and concept mastery overview.
+          </p>
+        </div>
+        <QuickGenerateButton />
       </header>
 
       <SummaryGrid
