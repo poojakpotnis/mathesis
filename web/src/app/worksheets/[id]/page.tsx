@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
@@ -327,21 +327,41 @@ function ScoreProblem({
   const [pending, startTransition] = useTransition();
   const [notes, setNotes] = useState(problem.score?.parentNotes ?? "");
   const [notesOpen, setNotesOpen] = useState(false);
+  const [savedNotes, setSavedNotes] = useState(
+    problem.score?.parentNotes ?? ""
+  );
+  const [notesStatus, setNotesStatus] = useState<"idle" | "saving" | "saved">(
+    "idle"
+  );
+  const savedFlashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  function submit(isCorrect: boolean) {
+  function submit(isCorrect: boolean, opts?: { fromNotesAutoSave?: boolean }) {
+    if (opts?.fromNotesAutoSave) setNotesStatus("saving");
     startTransition(async () => {
+      const trimmed = notes.trim();
       const res = await submitScoreAction(
         problem.worksheetId,
         problem.id,
         isCorrect,
-        notes.trim() || undefined
+        trimmed || undefined
       );
       if (res.ok) {
         onScored({
           isCorrect,
-          parentNotes: notes.trim() || null,
+          parentNotes: trimmed || null,
           scoredAt: new Date().toISOString(),
         });
+        setSavedNotes(trimmed);
+        if (opts?.fromNotesAutoSave) {
+          setNotesStatus("saved");
+          if (savedFlashTimer.current) clearTimeout(savedFlashTimer.current);
+          savedFlashTimer.current = setTimeout(
+            () => setNotesStatus("idle"),
+            1500
+          );
+        }
+      } else if (opts?.fromNotesAutoSave) {
+        setNotesStatus("idle");
       }
     });
   }
@@ -349,6 +369,28 @@ function ScoreProblem({
   const score = problem.score;
   const correctBtnActive = score?.isCorrect === true;
   const wrongBtnActive = score?.isCorrect === false;
+  const notesDirty = notes.trim() !== savedNotes.trim();
+
+  // Debounced auto-save: 800ms after the last keystroke, push the current
+  // notes back via the score action. Only fires when the problem already
+  // has a score (notes attach to the score row) and only when the text
+  // differs from what's persisted.
+  useEffect(() => {
+    if (!score) return;
+    if (!notesDirty) return;
+    if (pending) return;
+    const timer = setTimeout(() => {
+      submit(score.isCorrect, { fromNotesAutoSave: true });
+    }, 800);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [notes, score?.isCorrect, notesDirty, pending]);
+
+  useEffect(() => {
+    return () => {
+      if (savedFlashTimer.current) clearTimeout(savedFlashTimer.current);
+    };
+  }, []);
 
   return (
     <div
@@ -419,15 +461,32 @@ function ScoreProblem({
           </div>
 
           {notesOpen && (
-            <textarea
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              onBlur={() => {
-                if (score) submit(score.isCorrect);
-              }}
-              placeholder="What did your kid struggle with? (saves on blur)"
-              className="mt-3 w-full min-h-[60px] rounded-md border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
-            />
+            <div className="mt-3">
+              <textarea
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                placeholder={
+                  score
+                    ? "What did your kid struggle with? (saves automatically)"
+                    : "Score this problem first to enable notes."
+                }
+                disabled={!score}
+                className="w-full min-h-[60px] rounded-md border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:opacity-50"
+              />
+              <div className="mt-1 h-4 text-[11px] flex items-center gap-2">
+                {!score ? null : notesStatus === "saving" ? (
+                  <span className="text-muted-foreground">Saving…</span>
+                ) : notesStatus === "saved" ? (
+                  <span className="text-success">Saved ✓</span>
+                ) : notesDirty ? (
+                  <span className="text-muted-foreground">
+                    Unsaved · saves automatically when you stop typing
+                  </span>
+                ) : savedNotes ? (
+                  <span className="text-muted-foreground">Saved earlier</span>
+                ) : null}
+              </div>
+            </div>
           )}
         </div>
       </div>
