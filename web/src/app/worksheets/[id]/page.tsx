@@ -400,7 +400,7 @@ function ScoreProblem({
         score
           ? score.isCorrect
             ? "border-success/30 bg-success/5"
-            : "border-warning/30 bg-warning/5"
+            : "border-destructive/30 bg-destructive/5"
           : "border-border bg-card"
       }`}
     >
@@ -415,12 +415,18 @@ function ScoreProblem({
           {score && (
             score.isCorrect ? (
               <CheckCircle2
-                className="w-4 h-4 text-success shrink-0"
+                className="w-5 h-5 text-success shrink-0"
+                fill="currentColor"
+                fillOpacity={0.15}
+                strokeWidth={2.5}
                 aria-label="Correct"
               />
             ) : (
               <XCircle
-                className="w-4 h-4 text-warning shrink-0"
+                className="w-5 h-5 text-destructive shrink-0"
+                fill="currentColor"
+                fillOpacity={0.15}
+                strokeWidth={2.5}
                 aria-label="Wrong"
               />
             )
@@ -464,7 +470,7 @@ function ScoreProblem({
                     setEditingScore(false);
                   }}
                   disabled={pending}
-                  className={wrongBtnActive ? "bg-warning hover:bg-warning/90 text-white" : ""}
+                  className={wrongBtnActive ? "bg-destructive hover:bg-destructive/90 text-white" : ""}
                 >
                   <XCircle className="w-3.5 h-3.5" />
                   Wrong
@@ -487,7 +493,7 @@ function ScoreProblem({
                   className={`text-[11px] gap-1 ${
                     score?.isCorrect
                       ? "border-success/40 text-success bg-success/10"
-                      : "border-warning/40 text-warning bg-warning/10"
+                      : "border-destructive/40 text-destructive bg-destructive/10"
                   }`}
                 >
                   {score?.isCorrect ? (
