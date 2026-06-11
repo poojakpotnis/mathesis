@@ -370,6 +370,8 @@ function ScoreProblem({
   const correctBtnActive = score?.isCorrect === true;
   const wrongBtnActive = score?.isCorrect === false;
   const notesDirty = notes.trim() !== savedNotes.trim();
+  const [editingScore, setEditingScore] = useState(false);
+  const showButtons = !score || editingScore;
 
   // Debounced auto-save: 800ms after the last keystroke, push the current
   // notes back via the score action. Only fires when the problem already
@@ -403,12 +405,27 @@ function ScoreProblem({
       }`}
     >
       <div className="flex items-start gap-4">
-        <span
-          className="text-sm font-medium text-primary/70 min-w-[2.5rem] pt-0.5 tabular-nums"
-          style={{ fontFamily: "var(--font-heading)" }}
-        >
-          {problem.displayOrder}.
-        </span>
+        <div className="flex items-center gap-1.5 min-w-[3.25rem] pt-0.5">
+          <span
+            className="text-sm font-medium text-primary/70 tabular-nums"
+            style={{ fontFamily: "var(--font-heading)" }}
+          >
+            {problem.displayOrder}.
+          </span>
+          {score && (
+            score.isCorrect ? (
+              <CheckCircle2
+                className="w-4 h-4 text-success shrink-0"
+                aria-label="Correct"
+              />
+            ) : (
+              <XCircle
+                className="w-4 h-4 text-warning shrink-0"
+                aria-label="Wrong"
+              />
+            )
+          )}
+        </div>
         <div className="flex-1 min-w-0">
           <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap">
             {problem.problemText}
@@ -424,26 +441,73 @@ function ScoreProblem({
           </div>
 
           <div className="mt-3 flex items-center gap-2 flex-wrap">
-            <Button
-              size="xs"
-              variant={correctBtnActive ? "default" : "outline"}
-              onClick={() => submit(true)}
-              disabled={pending}
-              className={correctBtnActive ? "bg-success hover:bg-success/90 text-white" : ""}
-            >
-              <CheckCircle2 className="w-3.5 h-3.5" />
-              Correct
-            </Button>
-            <Button
-              size="xs"
-              variant={wrongBtnActive ? "default" : "outline"}
-              onClick={() => submit(false)}
-              disabled={pending}
-              className={wrongBtnActive ? "bg-warning hover:bg-warning/90 text-white" : ""}
-            >
-              <XCircle className="w-3.5 h-3.5" />
-              Wrong
-            </Button>
+            {showButtons ? (
+              <>
+                <Button
+                  size="xs"
+                  variant={correctBtnActive ? "default" : "outline"}
+                  onClick={() => {
+                    submit(true);
+                    setEditingScore(false);
+                  }}
+                  disabled={pending}
+                  className={correctBtnActive ? "bg-success hover:bg-success/90 text-white" : ""}
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  Correct
+                </Button>
+                <Button
+                  size="xs"
+                  variant={wrongBtnActive ? "default" : "outline"}
+                  onClick={() => {
+                    submit(false);
+                    setEditingScore(false);
+                  }}
+                  disabled={pending}
+                  className={wrongBtnActive ? "bg-warning hover:bg-warning/90 text-white" : ""}
+                >
+                  <XCircle className="w-3.5 h-3.5" />
+                  Wrong
+                </Button>
+                {score && editingScore && (
+                  <Button
+                    size="xs"
+                    variant="ghost"
+                    onClick={() => setEditingScore(false)}
+                    disabled={pending}
+                  >
+                    Cancel
+                  </Button>
+                )}
+              </>
+            ) : (
+              <>
+                <Badge
+                  variant="outline"
+                  className={`text-[11px] gap-1 ${
+                    score?.isCorrect
+                      ? "border-success/40 text-success bg-success/10"
+                      : "border-warning/40 text-warning bg-warning/10"
+                  }`}
+                >
+                  {score?.isCorrect ? (
+                    <CheckCircle2 className="w-3 h-3" />
+                  ) : (
+                    <XCircle className="w-3 h-3" />
+                  )}
+                  {score?.isCorrect ? "Correct" : "Wrong"}
+                </Badge>
+                <Button
+                  size="xs"
+                  variant="ghost"
+                  onClick={() => setEditingScore(true)}
+                  disabled={pending}
+                  className="text-muted-foreground"
+                >
+                  Change
+                </Button>
+              </>
+            )}
             <Button
               size="xs"
               variant="ghost"
@@ -454,7 +518,6 @@ function ScoreProblem({
             </Button>
             {score && (
               <span className="text-[11px] text-muted-foreground ml-auto">
-                {score.isCorrect ? "✓ correct" : "✗ wrong"} ·{" "}
                 {new Date(score.scoredAt).toLocaleString()}
               </span>
             )}
