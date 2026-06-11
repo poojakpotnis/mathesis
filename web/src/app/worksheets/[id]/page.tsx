@@ -150,6 +150,9 @@ export default function WorksheetDetailPage() {
       </div>
 
       <header className="mb-8 print:mb-4">
+        <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground mb-1">
+          Worksheet #{worksheet.id}
+        </p>
         <h2
           className="text-3xl tracking-tight text-foreground"
           style={{ fontFamily: "var(--font-heading)" }}

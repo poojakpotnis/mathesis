@@ -92,8 +92,8 @@ function WorksheetCard({ worksheet }: { worksheet: WorksheetRow }) {
       <div className="relative border border-border rounded-lg px-6 py-5 bg-card hover:bg-accent/50 transition-all duration-200 hover:border-primary/20 hover:shadow-sm">
         <div className="flex items-center justify-between gap-4">
           <div className="flex items-center gap-5 min-w-0">
-            <div className="flex items-center justify-center w-12 h-12 rounded-md bg-primary/8 text-primary border border-primary/10 shrink-0">
-              <FileText className="w-5 h-5" />
+            <div className="flex items-center justify-center w-12 h-12 rounded-md bg-primary/8 text-primary border border-primary/10 shrink-0 tabular-nums">
+              <span className="text-sm font-medium">#{worksheet.id}</span>
             </div>
             <div className="min-w-0">
               <h3 className="text-sm font-semibold text-foreground group-hover:text-primary transition-colors truncate">

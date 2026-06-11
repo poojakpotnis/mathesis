@@ -353,6 +353,9 @@ function RecentWorksheets({ rows }: { rows: RecentWorksheet[] }) {
             <div className="flex items-center justify-between gap-4">
               <div className="min-w-0 flex-1">
                 <div className="text-sm font-medium text-foreground truncate">
+                  <span className="text-muted-foreground tabular-nums mr-1.5">
+                    #{w.id}
+                  </span>
                   {w.title}
                 </div>
                 <div className="flex items-center gap-3 mt-1 text-[11px] text-muted-foreground">
