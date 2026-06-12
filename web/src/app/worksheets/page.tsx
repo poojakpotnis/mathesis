@@ -4,6 +4,12 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "@/components/ui/tabs";
+import {
   FileText,
   Clock,
   CheckCircle2,
@@ -73,13 +79,58 @@ export default function WorksheetsIndexPage() {
       ) : rows.length === 0 ? (
         <EmptyState />
       ) : (
-        <div className="grid gap-3">
-          {rows.map((w) => (
-            <WorksheetCard key={w.id} worksheet={w} />
-          ))}
-        </div>
+        <WorksheetTabs rows={rows} />
       )}
     </div>
+  );
+}
+
+function WorksheetTabs({ rows }: { rows: WorksheetRow[] }) {
+  // "Active" = anything the parent might still touch — never opened
+  // (generated) or partially scored (in_progress). "Scored" = fully scored;
+  // moved to its own tab so completed work doesn't crowd the dashboard.
+  const active = rows.filter((w) => w.status !== "scored");
+  const scored = rows.filter((w) => w.status === "scored");
+
+  return (
+    <Tabs defaultValue="active">
+      <TabsList>
+        <TabsTrigger value="active">Active ({active.length})</TabsTrigger>
+        <TabsTrigger value="scored">Scored ({scored.length})</TabsTrigger>
+      </TabsList>
+
+      <TabsContent value="active" className="mt-6">
+        {active.length === 0 ? (
+          <EmptyTab message="No active worksheets — everything's been scored." />
+        ) : (
+          <div className="grid gap-3">
+            {active.map((w) => (
+              <WorksheetCard key={w.id} worksheet={w} />
+            ))}
+          </div>
+        )}
+      </TabsContent>
+
+      <TabsContent value="scored" className="mt-6">
+        {scored.length === 0 ? (
+          <EmptyTab message="Nothing scored yet — finish a worksheet to see it here." />
+        ) : (
+          <div className="grid gap-3">
+            {scored.map((w) => (
+              <WorksheetCard key={w.id} worksheet={w} />
+            ))}
+          </div>
+        )}
+      </TabsContent>
+    </Tabs>
+  );
+}
+
+function EmptyTab({ message }: { message: string }) {
+  return (
+    <p className="text-sm text-muted-foreground py-8 text-center font-light">
+      {message}
+    </p>
   );
 }
 
@@ -126,7 +177,15 @@ function WorksheetCard({ worksheet }: { worksheet: WorksheetRow }) {
               </span>
             )}
             {worksheet.status === "scored" && (
-              <Badge variant="default">Scored</Badge>
+              <Badge variant="default">
+                {worksheet.totalAttempted && worksheet.totalAttempted > 0
+                  ? `${Math.round(
+                      ((worksheet.totalCorrect ?? 0) /
+                        worksheet.totalAttempted) *
+                        100
+                    )}% · ${worksheet.totalCorrect ?? 0}/${worksheet.totalAttempted}`
+                  : "Scored"}
+              </Badge>
             )}
             <ChevronRight className="w-4 h-4 text-muted-foreground group-hover:text-primary transition-colors" />
           </div>

@@ -22,6 +22,20 @@
       "when": 1780902261795,
       "tag": "0002_phase_5e_verify_span_ids",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1781233140266,
+      "tag": "0003_phase_6_5_concept_modality_tag",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1781238099301,
+      "tag": "0004_phase_6_5_worksheets_skipped_visual",
+      "breakpoints": true
     }
   ]
 }

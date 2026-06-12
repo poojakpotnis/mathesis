@@ -1,0 +1,1 @@
+ALTER TABLE `concepts` ADD `modality_tag` text DEFAULT 'text_dominant' NOT NULL;

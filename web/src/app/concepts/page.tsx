@@ -1,10 +1,26 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { ChevronDown, ChevronRight, Sparkles, BookOpen, FileText } from "lucide-react";
+import { generateConceptWorksheetAction } from "@/lib/actions/worksheets";
+
+const COUNT_OPTIONS = [4, 6, 8, 10, 12];
+const DEFAULT_COUNT = 8;
 
 type MasteryLevel = "not_started" | "learning" | "practicing" | "mastered";
+type ModalityTag = "text_dominant" | "mixed" | "visual_dominant";
 
 type ConceptRow = {
   id: number;
@@ -13,6 +29,7 @@ type ConceptRow = {
   category: string;
   description: string | null;
   createdBy: "claude" | "parent";
+  modalityTag: ModalityTag;
   sourceProblemCount: number;
   lessonCount: number;
   generatedProblemCount: number;
@@ -131,58 +148,69 @@ function ConceptCard({
 }) {
   return (
     <div className="border border-border rounded-lg bg-card overflow-hidden">
-      <button
-        onClick={onToggle}
-        className="w-full flex items-center gap-4 px-5 py-4 text-left hover:bg-accent/30 transition-colors"
-      >
-        <div className="text-muted-foreground">
-          {expanded ? (
-            <ChevronDown className="w-4 h-4" />
-          ) : (
-            <ChevronRight className="w-4 h-4" />
-          )}
-        </div>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-sm font-medium text-foreground">
-              {row.displayName}
-            </span>
-            <span className="text-[11px] text-muted-foreground font-mono">
-              {row.name}
-            </span>
-            {row.mastery && row.mastery.totalAttempted > 0 && (
-              <MasteryBadge level={row.mastery.level} />
-            )}
-            {row.createdBy === "parent" && (
-              <Badge variant="outline" className="text-[10px]">
-                parent
-              </Badge>
+      <div className="flex items-center gap-2 pr-3 hover:bg-accent/30 transition-colors">
+        <button
+          onClick={onToggle}
+          className="flex-1 flex items-center gap-4 px-5 py-4 text-left min-w-0"
+        >
+          <div className="text-muted-foreground">
+            {expanded ? (
+              <ChevronDown className="w-4 h-4" />
+            ) : (
+              <ChevronRight className="w-4 h-4" />
             )}
           </div>
-          <div className="flex items-center gap-4 mt-1 text-[11px] text-muted-foreground">
-            <span className="flex items-center gap-1">
-              <BookOpen className="w-3 h-3" />
-              {row.sourceProblemCount} source problem
-              {row.sourceProblemCount === 1 ? "" : "s"}
-              {row.lessonCount > 0 && ` · ${row.lessonCount} lesson${row.lessonCount === 1 ? "" : "s"}`}
-            </span>
-            <span className="flex items-center gap-1">
-              <Sparkles className="w-3 h-3" />
-              {row.generatedProblemCount} generated
-            </span>
-            {row.mastery && row.mastery.totalAttempted > 0 && (
-              <span className="flex items-center gap-1">
-                <FileText className="w-3 h-3" />
-                {row.mastery.totalCorrect}/{row.mastery.totalAttempted}{" "}
-                ({Math.round(
-                  (row.mastery.totalCorrect / row.mastery.totalAttempted) * 100
-                )}
-                %)
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-sm font-medium text-foreground">
+                {row.displayName}
               </span>
-            )}
+              <span className="text-[11px] text-muted-foreground font-mono">
+                {row.name}
+              </span>
+              {row.mastery && row.mastery.totalAttempted > 0 && (
+                <MasteryBadge level={row.mastery.level} />
+              )}
+              {row.modalityTag === "visual_dominant" && (
+                <Badge
+                  variant="outline"
+                  className="text-[10px] border-muted-foreground/30 text-muted-foreground"
+                >
+                  visual
+                </Badge>
+              )}
+              {row.createdBy === "parent" && (
+                <Badge variant="outline" className="text-[10px]">
+                  parent
+                </Badge>
+              )}
+            </div>
+            <div className="flex items-center gap-4 mt-1 text-[11px] text-muted-foreground">
+              <span className="flex items-center gap-1">
+                <BookOpen className="w-3 h-3" />
+                {row.sourceProblemCount} source problem
+                {row.sourceProblemCount === 1 ? "" : "s"}
+                {row.lessonCount > 0 && ` · ${row.lessonCount} lesson${row.lessonCount === 1 ? "" : "s"}`}
+              </span>
+              <span className="flex items-center gap-1">
+                <Sparkles className="w-3 h-3" />
+                {row.generatedProblemCount} generated
+              </span>
+              {row.mastery && row.mastery.totalAttempted > 0 && (
+                <span className="flex items-center gap-1">
+                  <FileText className="w-3 h-3" />
+                  {row.mastery.totalCorrect}/{row.mastery.totalAttempted}{" "}
+                  ({Math.round(
+                    (row.mastery.totalCorrect / row.mastery.totalAttempted) * 100
+                  )}
+                  %)
+                </span>
+              )}
+            </div>
           </div>
-        </div>
-      </button>
+        </button>
+        <ConceptDrillButton row={row} />
+      </div>
 
       {expanded && (
         <div className="border-t border-border px-5 py-4 bg-muted/10">
@@ -219,6 +247,102 @@ function ConceptCard({
         </div>
       )}
     </div>
+  );
+}
+
+function ConceptDrillButton({ row }: { row: ConceptRow }) {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const [count, setCount] = useState(DEFAULT_COUNT);
+  const [pending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+
+  const disabled =
+    row.modalityTag === "visual_dominant" || row.sourceProblemCount === 0;
+  const title =
+    row.modalityTag === "visual_dominant"
+      ? "Taught with diagrams — use the portal directly"
+      : row.sourceProblemCount === 0
+        ? "No source problems to drill from"
+        : `Generate a progressive worksheet on ${row.displayName}`;
+
+  function handleGenerate() {
+    setError(null);
+    startTransition(async () => {
+      const res = await generateConceptWorksheetAction(row.id, count);
+      if (res.ok) {
+        setOpen(false);
+        router.push(`/worksheets/${res.worksheetId}`);
+      } else {
+        setError(res.error);
+      }
+    });
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger
+        render={
+          <Button
+            size="xs"
+            variant="outline"
+            disabled={disabled}
+            title={title}
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            Generate
+          </Button>
+        }
+      />
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Drill {row.displayName}</DialogTitle>
+          <DialogDescription>
+            Progressive worksheet — problems ramp from easier to harder. Pulls
+            from {row.sourceProblemCount} source problem
+            {row.sourceProblemCount === 1 ? "" : "s"}.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="py-2">
+          <label className="text-xs uppercase tracking-wider text-muted-foreground">
+            How many problems?
+          </label>
+          <div className="flex items-center gap-2 mt-2">
+            {COUNT_OPTIONS.map((n) => (
+              <Button
+                key={n}
+                type="button"
+                size="sm"
+                variant={count === n ? "default" : "outline"}
+                onClick={() => setCount(n)}
+                disabled={pending}
+              >
+                {n}
+              </Button>
+            ))}
+          </div>
+        </div>
+
+        {error && (
+          <p className="text-xs text-destructive">{error}</p>
+        )}
+
+        <DialogFooter>
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={() => setOpen(false)}
+            disabled={pending}
+          >
+            Cancel
+          </Button>
+          <Button type="button" onClick={handleGenerate} disabled={pending}>
+            {pending ? "Generating…" : `Generate ${count} problems`}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

@@ -1,6 +1,6 @@
 "use server";
 
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db/client";
 import {
@@ -32,10 +32,23 @@ export type GenerateWorksheetInput = {
   difficulty: GeneratorDifficulty;
   focusConceptIds?: number[];
   skipConceptIds?: number[];
+  // When true, candidates are hard-filtered to focusConceptIds (instead of
+  // just sorted with them first). Used by concept-drill generation where
+  // the parent picks one concept and wants only that concept's problems.
+  focusOnly?: boolean;
 };
 
 export type GenerateWorksheetResult =
-  | { ok: true; worksheetId: number; verifiedCount: number; flaggedCount: number }
+  | {
+      ok: true;
+      worksheetId: number;
+      verifiedCount: number;
+      flaggedCount: number;
+      // Concept ids on this lesson that were skipped because they're
+      // visual_dominant (taught via diagrams, not text). The worksheet
+      // detail page surfaces these as "Practice from your portal".
+      skippedVisualConcepts: number[];
+    }
   | { ok: false; error: string };
 
 export async function generateWorksheetAction(
@@ -51,7 +64,7 @@ export async function generateWorksheetAction(
     return { ok: false, error: "Invalid difficulty" };
   }
 
-  const { lessonId, count, difficulty, focusConceptIds, skipConceptIds } = input;
+  const { lessonId, count, difficulty, focusConceptIds, skipConceptIds, focusOnly } = input;
 
   // Top-level span. Everything below — generator Anthropic call, verifier
   // Anthropic calls, DB writes — runs inside the active context of this span
@@ -96,6 +109,7 @@ export async function generateWorksheetAction(
       conceptName: concepts.name,
       conceptDisplay: concepts.displayName,
       conceptCategory: concepts.category,
+      conceptModalityTag: concepts.modalityTag,
       scrapedProblemId: scrapedProblems.id,
       problemText: scrapedProblems.problemText,
       hasImage: scrapedProblems.hasImage,
@@ -113,7 +127,10 @@ export async function generateWorksheetAction(
     return { ok: false, error: "Lesson has no classified problem→concept mappings" };
   }
 
-  type Grouped = GeneratorInputConcept & { totalCount: number };
+  type Grouped = GeneratorInputConcept & {
+    totalCount: number;
+    modalityTag: string;
+  };
   const byId = new Map<number, Grouped>();
   for (const m of lessonMappings) {
     let entry = byId.get(m.conceptId);
@@ -125,6 +142,7 @@ export async function generateWorksheetAction(
         category: m.conceptCategory,
         exampleProblems: [],
         totalCount: 0,
+        modalityTag: m.conceptModalityTag,
       };
       byId.set(m.conceptId, entry);
     }
@@ -140,14 +158,54 @@ export async function generateWorksheetAction(
     }
   }
 
-  let candidates = [...byId.values()];
+  // Apply skipConceptIds first to get the pre-modality candidate set
+  // (concepts the parent didn't explicitly remove). Then split that into
+  // visual_dominant (= what the modality filter takes out of the generator)
+  // and the rest (= input to the generator).
+  //
+  // skippedVisualConcepts is scoped to *eligible* candidates so a parent
+  // who explicitly skipped a visual concept doesn't see it surface again
+  // as portal practice. Stored on the worksheet row so the detail API can
+  // read it back later.
+  let preModalityCandidates = [...byId.values()];
   if (skipConceptIds && skipConceptIds.length > 0) {
     const skipSet = new Set(skipConceptIds);
-    candidates = candidates.filter((c) => !skipSet.has(c.id));
+    preModalityCandidates = preModalityCandidates.filter(
+      (c) => !skipSet.has(c.id)
+    );
   }
 
+  const skippedVisualConcepts: number[] = [];
+  for (const c of preModalityCandidates) {
+    if (c.modalityTag === "visual_dominant") skippedVisualConcepts.push(c.id);
+  }
+  const skippedVisualSet = new Set(skippedVisualConcepts);
+  let candidates = preModalityCandidates.filter(
+    (c) => !skippedVisualSet.has(c.id)
+  );
+
+  // Concept-drill mode: hard-restrict candidates to the focused concept(s).
+  // Used by the concepts page "Generate" button — parent picks one concept,
+  // worksheet contains only that concept's problems.
+  if (focusOnly && focusConceptIds && focusConceptIds.length > 0) {
+    const focusSet = new Set(focusConceptIds);
+    candidates = candidates.filter((c) => focusSet.has(c.id));
+  }
+
+  span.setAttribute(
+    "worksheet.skipped_visual_concept_ids",
+    JSON.stringify(skippedVisualConcepts)
+  );
+  span.setAttribute(
+    "worksheet.skipped_visual_concept_count",
+    skippedVisualConcepts.length
+  );
+
   if (candidates.length === 0) {
-    return { ok: false, error: "No concepts remain after applying skipConceptIds" };
+    return {
+      ok: false,
+      error: "No concepts remain after filtering visual_dominant + applying skipConceptIds",
+    };
   }
 
   const focusSet = new Set(focusConceptIds ?? []);
@@ -265,6 +323,7 @@ export async function generateWorksheetAction(
       totalProblems: finalProblems.length,
       focusConceptIds: focusConceptIds ? JSON.stringify(focusConceptIds) : null,
       skipConceptIds: skipConceptIds ? JSON.stringify(skipConceptIds) : null,
+      skippedVisualConceptIds: JSON.stringify(skippedVisualConcepts),
       difficultyLevel: difficulty,
       status: "generated",
     })
@@ -347,9 +406,76 @@ export async function generateWorksheetAction(
     worksheetId: worksheet.id,
     verifiedCount,
     flaggedCount,
+    skippedVisualConcepts,
   };
     }
   );
+}
+
+// Concept drill. Picks the lesson where the concept has the most source
+// problems (richest reference set for the generator), then calls
+// generateWorksheetAction with focusOnly so the worksheet contains only
+// that concept's problems. Difficulty is fixed to "progressive" — the kid
+// is here because they're struggling, ramp them up.
+const CONCEPT_DRILL_DIFFICULTY: GeneratorDifficulty = "progressive";
+
+export async function generateConceptWorksheetAction(
+  conceptId: number,
+  count: number
+): Promise<GenerateWorksheetResult> {
+  if (!Number.isInteger(conceptId) || conceptId <= 0) {
+    return { ok: false, error: "Invalid conceptId" };
+  }
+  if (!Number.isInteger(count) || count < 1 || count > 30) {
+    return { ok: false, error: "Count must be between 1 and 30" };
+  }
+
+  const [concept] = await db()
+    .select({
+      id: concepts.id,
+      name: concepts.name,
+      modalityTag: concepts.modalityTag,
+    })
+    .from(concepts)
+    .where(eq(concepts.id, conceptId))
+    .limit(1);
+  if (!concept) return { ok: false, error: "Concept not found" };
+  if (concept.modalityTag === "visual_dominant") {
+    return {
+      ok: false,
+      error: `"${concept.name}" is taught with diagrams in the source. Use the portal directly for this concept.`,
+    };
+  }
+
+  const lessonCounts = await db()
+    .select({
+      lessonId: scrapedProblems.lessonId,
+      n: sql<number>`count(distinct ${scrapedProblems.id})`,
+    })
+    .from(problemConcepts)
+    .innerJoin(
+      scrapedProblems,
+      eq(problemConcepts.scrapedProblemId, scrapedProblems.id)
+    )
+    .where(eq(problemConcepts.conceptId, conceptId))
+    .groupBy(scrapedProblems.lessonId);
+  if (lessonCounts.length === 0) {
+    return {
+      ok: false,
+      error: `No source problems classified to "${concept.name}" — nothing to drill.`,
+    };
+  }
+  const top = lessonCounts.reduce((best, r) =>
+    Number(r.n) > Number(best.n) ? r : best
+  );
+
+  return generateWorksheetAction({
+    lessonId: top.lessonId,
+    count,
+    difficulty: CONCEPT_DRILL_DIFFICULTY,
+    focusConceptIds: [conceptId],
+    focusOnly: true,
+  });
 }
 
 export type ProblemVerificationStatus =

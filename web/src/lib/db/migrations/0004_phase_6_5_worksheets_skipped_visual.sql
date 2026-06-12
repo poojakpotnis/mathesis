@@ -1,0 +1,1 @@
+ALTER TABLE `worksheets` ADD `skipped_visual_concept_ids` text;

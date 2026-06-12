@@ -52,6 +52,16 @@ export const concepts = sqliteTable("concepts", {
   createdBy: text("created_by", { enum: ["claude", "parent"] })
     .notNull()
     .default("claude"),
+  // How this concept is taught in the imported source: text_dominant (verbal
+  // problems), visual_dominant (≥80% of source problems are images — e.g.
+  // labeled trapezoid diagrams), mixed. The generator skips visual_dominant
+  // concepts; the worksheet UI surfaces their source problems as
+  // "practice from your portal" instead.
+  modalityTag: text("modality_tag", {
+    enum: ["text_dominant", "mixed", "visual_dominant"],
+  })
+    .notNull()
+    .default("text_dominant"),
 });
 
 export const problemConcepts = sqliteTable("problem_concepts", {
@@ -78,6 +88,11 @@ export const worksheets = sqliteTable("worksheets", {
   totalProblems: integer("total_problems").notNull(),
   focusConceptIds: text("focus_concept_ids"),
   skipConceptIds: text("skip_concept_ids"),
+  // JSON-encoded number[] of concept ids dropped by the visual_dominant
+  // modality filter at generation time. NULL = pre-Phase-6.5 worksheet
+  // (filter hadn't shipped). [] = filter ran but didn't drop anything.
+  // Drives the "Practice from your portal" section on the detail page.
+  skippedVisualConceptIds: text("skipped_visual_concept_ids"),
   difficultyLevel: text("difficulty_level", {
     enum: ["easier", "match", "harder", "progressive"],
   })

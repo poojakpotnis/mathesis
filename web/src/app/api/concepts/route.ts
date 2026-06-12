@@ -20,6 +20,7 @@ export async function GET() {
       category: concepts.category,
       description: concepts.description,
       createdBy: concepts.createdBy,
+      modalityTag: concepts.modalityTag,
     })
     .from(concepts)
     .orderBy(concepts.category, concepts.name);
