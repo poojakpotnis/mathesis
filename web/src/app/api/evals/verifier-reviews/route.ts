@@ -27,10 +27,7 @@ export async function GET(request: NextRequest) {
     .from(generatedProblems)
     .innerJoin(worksheets, eq(generatedProblems.worksheetId, worksheets.id))
     .where(
-      inArray(
-        generatedProblems.verificationStatus,
-        PARENT_REVIEW_STATUSES as unknown as string[]
-      )
+      inArray(generatedProblems.verificationStatus, PARENT_REVIEW_STATUSES)
     )
     .orderBy(generatedProblems.id);
 
