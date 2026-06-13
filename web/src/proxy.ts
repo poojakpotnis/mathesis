@@ -26,6 +26,15 @@ export default auth((req) => {
 
   if (req.auth) return;
 
+  // Unauthenticated visitors hitting the root land on the public marketing
+  // page instead of the sign-in wall, so recruiters / drive-by visitors see
+  // what this is before being asked to log in. Deeper gated paths still
+  // bounce through /sign-in?callbackUrl=… so signed-in users land back
+  // exactly where they were.
+  if (pathname === "/") {
+    return NextResponse.redirect(new URL("/about", req.nextUrl.origin));
+  }
+
   const signInUrl = new URL("/sign-in", req.nextUrl.origin);
   signInUrl.searchParams.set("callbackUrl", pathname);
   return NextResponse.redirect(signInUrl);
