@@ -1,6 +1,6 @@
 "use server";
 
-import { eq, sql } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db/client";
 import {
@@ -175,8 +175,18 @@ export async function generateWorksheetAction(
     );
   }
 
+  // For focusOnly drills, only the focused concepts were in scope. Visual
+  // concepts outside the focus weren't going to appear on this worksheet
+  // regardless of the modality filter, so they shouldn't show up as
+  // portal practice. For lesson-wide generation, every preModality concept
+  // is in scope and the filter actually removed the visual ones.
+  const inScopeForSkipped =
+    focusOnly && focusConceptIds && focusConceptIds.length > 0
+      ? preModalityCandidates.filter((c) => focusConceptIds.includes(c.id))
+      : preModalityCandidates;
+
   const skippedVisualConcepts: number[] = [];
-  for (const c of preModalityCandidates) {
+  for (const c of inScopeForSkipped) {
     if (c.modalityTag === "visual_dominant") skippedVisualConcepts.push(c.id);
   }
   const skippedVisualSet = new Set(skippedVisualConcepts);
@@ -421,13 +431,17 @@ const CONCEPT_DRILL_DIFFICULTY: GeneratorDifficulty = "progressive";
 
 export async function generateConceptWorksheetAction(
   conceptId: number,
-  count: number
+  count: number,
+  lessonId?: number
 ): Promise<GenerateWorksheetResult> {
   if (!Number.isInteger(conceptId) || conceptId <= 0) {
     return { ok: false, error: "Invalid conceptId" };
   }
   if (!Number.isInteger(count) || count < 1 || count > 30) {
     return { ok: false, error: "Count must be between 1 and 30" };
+  }
+  if (lessonId !== undefined && (!Number.isInteger(lessonId) || lessonId <= 0)) {
+    return { ok: false, error: "Invalid lessonId" };
   }
 
   const [concept] = await db()
@@ -465,12 +479,26 @@ export async function generateConceptWorksheetAction(
       error: `No source problems classified to "${concept.name}" — nothing to drill.`,
     };
   }
-  const top = lessonCounts.reduce((best, r) =>
-    Number(r.n) > Number(best.n) ? r : best
-  );
+
+  let chosenLessonId: number;
+  if (lessonId !== undefined) {
+    const match = lessonCounts.find((r) => r.lessonId === lessonId);
+    if (!match) {
+      return {
+        ok: false,
+        error: `"${concept.name}" has no source problems on lesson id ${lessonId}.`,
+      };
+    }
+    chosenLessonId = lessonId;
+  } else {
+    const top = lessonCounts.reduce((best, r) =>
+      Number(r.n) > Number(best.n) ? r : best
+    );
+    chosenLessonId = top.lessonId;
+  }
 
   return generateWorksheetAction({
-    lessonId: top.lessonId,
+    lessonId: chosenLessonId,
     count,
     difficulty: CONCEPT_DRILL_DIFFICULTY,
     focusConceptIds: [conceptId],
@@ -758,4 +786,63 @@ export async function submitScoreAction(
   revalidatePath(`/worksheets/${worksheetId}`);
   revalidatePath("/");
   return { ok: true, totalCorrect, totalAttempted, worksheetStatus };
+}
+
+export type DeleteWorksheetResult =
+  | { ok: true }
+  | { ok: false; error: string };
+
+export async function deleteWorksheetAction(
+  worksheetId: number
+): Promise<DeleteWorksheetResult> {
+  if (!Number.isInteger(worksheetId) || worksheetId <= 0) {
+    return { ok: false, error: "Invalid worksheetId" };
+  }
+
+  const [worksheet] = await db()
+    .select({ id: worksheets.id })
+    .from(worksheets)
+    .where(eq(worksheets.id, worksheetId))
+    .limit(1);
+  if (!worksheet) return { ok: false, error: "Worksheet not found" };
+
+  // Capture affected concepts before deleting so we can recompute mastery
+  // after the score rows are gone. Phoenix annotations on verifier spans
+  // are not touched — they live in Phoenix, not Turso, and the verifier
+  // trace ids on the deleted problem rows would no longer resolve anyway.
+  const problemRows = await db()
+    .select({ id: generatedProblems.id })
+    .from(generatedProblems)
+    .where(eq(generatedProblems.worksheetId, worksheetId));
+  const pids = problemRows.map((p) => p.id);
+
+  let affectedConceptIds: number[] = [];
+  if (pids.length > 0) {
+    const conceptRows = await db()
+      .select({ conceptId: generatedProblemConcepts.conceptId })
+      .from(generatedProblemConcepts)
+      .where(inArray(generatedProblemConcepts.generatedProblemId, pids));
+    affectedConceptIds = [...new Set(conceptRows.map((r) => r.conceptId))];
+  }
+
+  // SQLite/Turso doesn't enforce FKs by default — do dependency-order
+  // deletes explicitly.
+  await db().delete(scores).where(eq(scores.worksheetId, worksheetId));
+  if (pids.length > 0) {
+    await db()
+      .delete(generatedProblemConcepts)
+      .where(inArray(generatedProblemConcepts.generatedProblemId, pids));
+  }
+  await db()
+    .delete(generatedProblems)
+    .where(eq(generatedProblems.worksheetId, worksheetId));
+  await db().delete(worksheets).where(eq(worksheets.id, worksheetId));
+
+  if (affectedConceptIds.length > 0) {
+    await recomputeConceptMastery(affectedConceptIds);
+  }
+
+  revalidatePath("/worksheets");
+  revalidatePath("/");
+  return { ok: true };
 }

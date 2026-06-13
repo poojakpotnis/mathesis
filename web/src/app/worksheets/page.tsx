@@ -1,8 +1,18 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useTransition } from "react";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import {
   Tabs,
   TabsContent,
@@ -15,8 +25,10 @@ import {
   CheckCircle2,
   AlertTriangle,
   ChevronRight,
+  Trash2,
 } from "lucide-react";
 import { QuickGenerateButton } from "@/components/quick-generate-button";
+import { deleteWorksheetAction } from "@/lib/actions/worksheets";
 
 type WorksheetRow = {
   id: number;
@@ -79,13 +91,22 @@ export default function WorksheetsIndexPage() {
       ) : rows.length === 0 ? (
         <EmptyState />
       ) : (
-        <WorksheetTabs rows={rows} />
+        <WorksheetTabs
+          rows={rows}
+          onDeleted={(id) => setRows((rs) => rs.filter((r) => r.id !== id))}
+        />
       )}
     </div>
   );
 }
 
-function WorksheetTabs({ rows }: { rows: WorksheetRow[] }) {
+function WorksheetTabs({
+  rows,
+  onDeleted,
+}: {
+  rows: WorksheetRow[];
+  onDeleted: (id: number) => void;
+}) {
   // "Active" = anything the parent might still touch — never opened
   // (generated) or partially scored (in_progress). "Scored" = fully scored;
   // moved to its own tab so completed work doesn't crowd the dashboard.
@@ -105,7 +126,7 @@ function WorksheetTabs({ rows }: { rows: WorksheetRow[] }) {
         ) : (
           <div className="grid gap-3">
             {active.map((w) => (
-              <WorksheetCard key={w.id} worksheet={w} />
+              <WorksheetCard key={w.id} worksheet={w} onDeleted={onDeleted} />
             ))}
           </div>
         )}
@@ -117,7 +138,7 @@ function WorksheetTabs({ rows }: { rows: WorksheetRow[] }) {
         ) : (
           <div className="grid gap-3">
             {scored.map((w) => (
-              <WorksheetCard key={w.id} worksheet={w} />
+              <WorksheetCard key={w.id} worksheet={w} onDeleted={onDeleted} />
             ))}
           </div>
         )}
@@ -134,14 +155,23 @@ function EmptyTab({ message }: { message: string }) {
   );
 }
 
-function WorksheetCard({ worksheet }: { worksheet: WorksheetRow }) {
+function WorksheetCard({
+  worksheet,
+  onDeleted,
+}: {
+  worksheet: WorksheetRow;
+  onDeleted: (id: number) => void;
+}) {
   const verified = Number(worksheet.verifiedCount) || 0;
   const flagged = Number(worksheet.flaggedCount) || 0;
   const created = new Date(worksheet.createdAt);
   return (
-    <Link href={`/worksheets/${worksheet.id}`} className="block group">
-      <div className="relative border border-border rounded-lg px-6 py-5 bg-card hover:bg-accent/50 transition-all duration-200 hover:border-primary/20 hover:shadow-sm">
-        <div className="flex items-center justify-between gap-4">
+    <div className="relative border border-border rounded-lg bg-card hover:bg-accent/50 transition-all duration-200 hover:border-primary/20 hover:shadow-sm">
+      <Link
+        href={`/worksheets/${worksheet.id}`}
+        className="block group"
+      >
+        <div className="flex items-center justify-between gap-4 px-6 py-5">
           <div className="flex items-center gap-5 min-w-0">
             <div className="flex items-center justify-center w-12 h-12 rounded-md bg-primary/8 text-primary border border-primary/10 shrink-0 tabular-nums">
               <span className="text-sm font-medium">#{worksheet.id}</span>
@@ -190,8 +220,91 @@ function WorksheetCard({ worksheet }: { worksheet: WorksheetRow }) {
             <ChevronRight className="w-4 h-4 text-muted-foreground group-hover:text-primary transition-colors" />
           </div>
         </div>
+      </Link>
+      <div className="absolute top-2 right-2">
+        <DeleteWorksheetIconButton
+          worksheetId={worksheet.id}
+          worksheetTitle={worksheet.title}
+          onDeleted={() => onDeleted(worksheet.id)}
+        />
       </div>
-    </Link>
+    </div>
+  );
+}
+
+function DeleteWorksheetIconButton({
+  worksheetId,
+  worksheetTitle,
+  onDeleted,
+}: {
+  worksheetId: number;
+  worksheetTitle: string;
+  onDeleted: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [pending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+
+  function handleDelete() {
+    setError(null);
+    startTransition(async () => {
+      const res = await deleteWorksheetAction(worksheetId);
+      if (res.ok) {
+        setOpen(false);
+        onDeleted();
+      } else {
+        setError(res.error);
+      }
+    });
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger
+        render={
+          <Button
+            size="xs"
+            variant="ghost"
+            className="text-muted-foreground hover:text-destructive hover:bg-destructive/10 h-7 w-7 p-0"
+            aria-label="Delete worksheet"
+            title="Delete"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </Button>
+        }
+      />
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Delete worksheet #{worksheetId}?</DialogTitle>
+          <DialogDescription>
+            {worksheetTitle} — all generated problems, scores, and parent
+            notes for this worksheet will be removed. Cannot be undone.
+          </DialogDescription>
+        </DialogHeader>
+
+        {error && <p className="text-xs text-destructive">{error}</p>}
+
+        <DialogFooter>
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={() => setOpen(false)}
+            disabled={pending}
+          >
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            onClick={handleDelete}
+            disabled={pending}
+            className="bg-destructive hover:bg-destructive/90 text-white"
+          >
+            {pending ? "Deleting…" : "Delete"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

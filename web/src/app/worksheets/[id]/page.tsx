@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useTransition } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -12,6 +12,15 @@ import {
   TabsList,
   TabsTrigger,
 } from "@/components/ui/tabs";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import {
   ArrowLeft,
   Printer,
@@ -24,8 +33,10 @@ import {
   Pencil,
   ImageIcon,
   ChevronDown,
+  Trash2,
 } from "lucide-react";
 import {
+  deleteWorksheetAction,
   setProblemVerificationAction,
   submitScoreAction,
   type ProblemVerificationStatus,
@@ -164,6 +175,10 @@ export default function WorksheetDetailPage() {
             <Printer className="w-4 h-4" />
             Print
           </Button>
+          <DeleteWorksheetButton
+            worksheetId={worksheet.id}
+            worksheetTitle={worksheet.title}
+          />
         </div>
       </div>
 
@@ -274,6 +289,79 @@ export default function WorksheetDetailPage() {
 
       <PortalPracticeSection items={data.portalPractice ?? []} />
     </div>
+  );
+}
+
+function DeleteWorksheetButton({
+  worksheetId,
+  worksheetTitle,
+}: {
+  worksheetId: number;
+  worksheetTitle: string;
+}) {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const [pending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+
+  function handleDelete() {
+    setError(null);
+    startTransition(async () => {
+      const res = await deleteWorksheetAction(worksheetId);
+      if (res.ok) {
+        setOpen(false);
+        router.push("/worksheets");
+      } else {
+        setError(res.error);
+      }
+    });
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger
+        render={
+          <Button
+            variant="outline"
+            className="text-destructive border-destructive/30 hover:bg-destructive/10 hover:text-destructive"
+          >
+            <Trash2 className="w-4 h-4" />
+            Delete
+          </Button>
+        }
+      />
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Delete this worksheet?</DialogTitle>
+          <DialogDescription>
+            {worksheetTitle} — all generated problems, scores, and parent
+            notes for this worksheet will be removed. Concept mastery
+            recomputes from remaining scores. Cannot be undone.
+          </DialogDescription>
+        </DialogHeader>
+
+        {error && <p className="text-xs text-destructive">{error}</p>}
+
+        <DialogFooter>
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={() => setOpen(false)}
+            disabled={pending}
+          >
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            onClick={handleDelete}
+            disabled={pending}
+            className="bg-destructive hover:bg-destructive/90 text-white"
+          >
+            {pending ? "Deleting…" : "Delete worksheet"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

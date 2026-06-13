@@ -22,6 +22,13 @@ const DEFAULT_COUNT = 8;
 type MasteryLevel = "not_started" | "learning" | "practicing" | "mastered";
 type ModalityTag = "text_dominant" | "mixed" | "visual_dominant";
 
+type ConceptLesson = {
+  lessonId: number;
+  lessonNumber: number;
+  lessonTitle: string;
+  sourceCount: number;
+};
+
 type ConceptRow = {
   id: number;
   name: string;
@@ -32,6 +39,7 @@ type ConceptRow = {
   modalityTag: ModalityTag;
   sourceProblemCount: number;
   lessonCount: number;
+  lessons: ConceptLesson[];
   generatedProblemCount: number;
   mastery: {
     level: MasteryLevel;
@@ -254,6 +262,11 @@ function ConceptDrillButton({ row }: { row: ConceptRow }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [count, setCount] = useState(DEFAULT_COUNT);
+  // Default to the first lesson — API sorts by source count desc, so this
+  // is the lesson with the richest reference set. Parent can override.
+  const [lessonId, setLessonId] = useState<number | null>(
+    row.lessons[0]?.lessonId ?? null
+  );
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
@@ -267,9 +280,10 @@ function ConceptDrillButton({ row }: { row: ConceptRow }) {
         : `Generate a progressive worksheet on ${row.displayName}`;
 
   function handleGenerate() {
+    if (lessonId == null) return;
     setError(null);
     startTransition(async () => {
-      const res = await generateConceptWorksheetAction(row.id, count);
+      const res = await generateConceptWorksheetAction(row.id, count, lessonId);
       if (res.ok) {
         setOpen(false);
         router.push(`/worksheets/${res.worksheetId}`);
@@ -278,6 +292,8 @@ function ConceptDrillButton({ row }: { row: ConceptRow }) {
       }
     });
   }
+
+  const selectedLesson = row.lessons.find((l) => l.lessonId === lessonId);
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -298,11 +314,34 @@ function ConceptDrillButton({ row }: { row: ConceptRow }) {
         <DialogHeader>
           <DialogTitle>Drill {row.displayName}</DialogTitle>
           <DialogDescription>
-            Progressive worksheet — problems ramp from easier to harder. Pulls
-            from {row.sourceProblemCount} source problem
-            {row.sourceProblemCount === 1 ? "" : "s"}.
+            Progressive worksheet — problems ramp from easier to harder.
           </DialogDescription>
         </DialogHeader>
+
+        {row.lessons.length > 1 && (
+          <div className="py-2">
+            <label className="text-xs uppercase tracking-wider text-muted-foreground">
+              From which lesson?
+            </label>
+            <div className="flex items-center gap-2 mt-2 flex-wrap">
+              {row.lessons.map((l) => (
+                <Button
+                  key={l.lessonId}
+                  type="button"
+                  size="sm"
+                  variant={lessonId === l.lessonId ? "default" : "outline"}
+                  onClick={() => setLessonId(l.lessonId)}
+                  disabled={pending}
+                >
+                  Lesson {l.lessonNumber}
+                  <span className="ml-1.5 text-[10px] opacity-70">
+                    {l.sourceCount}
+                  </span>
+                </Button>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div className="py-2">
           <label className="text-xs uppercase tracking-wider text-muted-foreground">
@@ -322,11 +361,16 @@ function ConceptDrillButton({ row }: { row: ConceptRow }) {
               </Button>
             ))}
           </div>
+          {selectedLesson && (
+            <p className="text-[11px] text-muted-foreground mt-2">
+              Pulls from {selectedLesson.sourceCount} source problem
+              {selectedLesson.sourceCount === 1 ? "" : "s"} on Lesson{" "}
+              {selectedLesson.lessonNumber}.
+            </p>
+          )}
         </div>
 
-        {error && (
-          <p className="text-xs text-destructive">{error}</p>
-        )}
+        {error && <p className="text-xs text-destructive">{error}</p>}
 
         <DialogFooter>
           <Button
@@ -337,7 +381,11 @@ function ConceptDrillButton({ row }: { row: ConceptRow }) {
           >
             Cancel
           </Button>
-          <Button type="button" onClick={handleGenerate} disabled={pending}>
+          <Button
+            type="button"
+            onClick={handleGenerate}
+            disabled={pending || lessonId == null}
+          >
             {pending ? "Generating…" : `Generate ${count} problems`}
           </Button>
         </DialogFooter>

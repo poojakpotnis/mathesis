@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
-import { eq, sql } from "drizzle-orm";
+import { eq, sql, desc, asc } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import {
   concepts,
+  lessons,
   problemConcepts,
   scrapedProblems,
   generatedProblemConcepts,
@@ -65,9 +66,43 @@ export async function GET() {
 
   const mastery = await db().select().from(conceptMastery);
 
+  // Per-concept lesson breakdown so the drill dialog can let the parent
+  // choose which lesson's flavor to drill (e.g., kid is on Lesson 33 and
+  // wants to drill there, not on the highest-source-count lesson).
+  const conceptLessons = await db()
+    .select({
+      conceptId: problemConcepts.conceptId,
+      lessonId: lessons.id,
+      lessonNumber: lessons.lessonNumber,
+      lessonTitle: lessons.title,
+      n: sql<number>`count(distinct ${scrapedProblems.id})`,
+    })
+    .from(problemConcepts)
+    .innerJoin(
+      scrapedProblems,
+      eq(problemConcepts.scrapedProblemId, scrapedProblems.id)
+    )
+    .innerJoin(lessons, eq(scrapedProblems.lessonId, lessons.id))
+    .groupBy(problemConcepts.conceptId, lessons.id)
+    .orderBy(asc(problemConcepts.conceptId), desc(sql`count(distinct ${scrapedProblems.id})`), asc(lessons.lessonNumber));
+
   const sourceById = new Map(sourceCounts.map((r) => [r.conceptId, r]));
   const genById = new Map(generatedCounts.map((r) => [r.conceptId, r]));
   const masteryById = new Map(mastery.map((r) => [r.conceptId, r]));
+  const lessonsByConceptId = new Map<
+    number,
+    { lessonId: number; lessonNumber: number; lessonTitle: string; sourceCount: number }[]
+  >();
+  for (const r of conceptLessons) {
+    const list = lessonsByConceptId.get(r.conceptId) ?? [];
+    list.push({
+      lessonId: r.lessonId,
+      lessonNumber: r.lessonNumber,
+      lessonTitle: r.lessonTitle,
+      sourceCount: Number(r.n),
+    });
+    lessonsByConceptId.set(r.conceptId, list);
+  }
 
   const examplesById = new Map<
     number,
@@ -94,6 +129,7 @@ export async function GET() {
         ...c,
         sourceProblemCount: Number(sc?.sourceProblemCount ?? 0),
         lessonCount: Number(sc?.lessonCount ?? 0),
+        lessons: lessonsByConceptId.get(c.id) ?? [],
         generatedProblemCount: Number(gc?.generatedProblemCount ?? 0),
         mastery: m
           ? {
