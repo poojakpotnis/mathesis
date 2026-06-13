@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { DM_Serif_Display, Source_Sans_3 } from "next/font/google";
 import "./globals.css";
 import { Sidebar } from "@/components/sidebar";
+import { auth, signOut } from "@/auth";
 
 const serif = DM_Serif_Display({
   variable: "--font-heading",
@@ -20,15 +21,25 @@ export const metadata: Metadata = {
   description: "Practice worksheet generator & progress tracker",
 };
 
-export default function RootLayout({
+async function signOutAction() {
+  "use server";
+  await signOut({ redirectTo: "/sign-in" });
+}
+
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const session = await auth();
+  const user = session?.user
+    ? { name: session.user.name ?? null, email: session.user.email ?? null }
+    : null;
+
   return (
     <html lang="en" className={`${serif.variable} ${sans.variable} h-full`}>
       <body className="min-h-full flex bg-background text-foreground antialiased">
-        <Sidebar />
+        <Sidebar user={user} signOutAction={signOutAction} />
         <main className="flex-1 ml-64 min-h-screen">
           <div className="max-w-6xl mx-auto px-8 py-10">{children}</div>
         </main>

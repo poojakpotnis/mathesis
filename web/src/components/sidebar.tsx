@@ -6,6 +6,7 @@ import {
   BookOpen,
   FileText,
   LayoutDashboard,
+  LogOut,
   Sparkles,
 } from "lucide-react";
 
@@ -16,7 +17,12 @@ const navItems = [
   { href: "/concepts", label: "Concepts", icon: Sparkles },
 ];
 
-export function Sidebar() {
+type Props = {
+  user: { name: string | null; email: string | null } | null;
+  signOutAction: () => Promise<void>;
+};
+
+export function Sidebar({ user, signOutAction }: Props) {
   const pathname = usePathname();
 
   return (
@@ -62,11 +68,35 @@ export function Sidebar() {
         </ul>
       </nav>
 
-      <div className="px-6 py-6 border-t border-border">
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <div className="w-2 h-2 rounded-full bg-success animate-pulse" />
-          <span className="font-light">Ready</span>
-        </div>
+      <div className="px-4 py-4 border-t border-border space-y-3">
+        {user ? (
+          <>
+            <div className="px-2">
+              {user.name && (
+                <p className="text-sm text-foreground truncate">{user.name}</p>
+              )}
+              {user.email && (
+                <p className="text-[11px] text-muted-foreground truncate">
+                  {user.email}
+                </p>
+              )}
+            </div>
+            <form action={signOutAction}>
+              <button
+                type="submit"
+                className="w-full flex items-center gap-2 px-3 py-2 rounded-md text-xs text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+                Sign out
+              </button>
+            </form>
+          </>
+        ) : (
+          <div className="flex items-center gap-2 text-xs text-muted-foreground px-2">
+            <div className="w-2 h-2 rounded-full bg-success animate-pulse" />
+            <span className="font-light">Ready</span>
+          </div>
+        )}
       </div>
     </aside>
   );
