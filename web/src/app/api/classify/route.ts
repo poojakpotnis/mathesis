@@ -93,6 +93,11 @@ export async function POST(request: NextRequest) {
       })
       .from(concepts);
 
+    const classifierLibrary = conceptLibrary.map((c) => ({
+      ...c,
+      description: c.description ?? "",
+    }));
+
     // Phase 5d ablation showed snake_case names alone carry the full classifier
     // signal (B matched A at 25/25); descriptions and displayNames are decoration
     // in this prompt. Shipping "names_only" cuts roughly half the library token
@@ -101,7 +106,7 @@ export async function POST(request: NextRequest) {
       classifierInput,
       lesson.title,
       lesson.gradeLevel,
-      conceptLibrary,
+      classifierLibrary,
       "names_only"
     );
 

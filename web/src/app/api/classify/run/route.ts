@@ -60,11 +60,16 @@ export async function POST(request: NextRequest) {
     })
     .from(concepts);
 
+  const classifierLibrary = conceptLibrary.map((c) => ({
+    ...c,
+    description: c.description ?? "",
+  }));
+
   const result = await classifyProblems(
     input,
     parsed.data.lessonTitle,
     parsed.data.gradeLevel,
-    conceptLibrary,
+    classifierLibrary,
     parsed.data.libraryMode
   );
   return NextResponse.json(result);
