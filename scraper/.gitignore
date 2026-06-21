@@ -1,0 +1,12 @@
+# Local importer state — playwright browser cookies, batch logs,
+# recon HTML, cached assignment ID lists. Regenerable; not source.
+storage/
+*.log
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+
+# Env
+.env

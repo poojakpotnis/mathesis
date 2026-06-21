@@ -11,6 +11,42 @@ from .models import LessonPayload, ScrapedProblem
 console = Console()
 
 
+HOME_URL = "https://homework.russianschool.com/StudentPortal/#/home"
+
+
+async def list_assignments(page: Page) -> list[dict]:
+    """Navigate to the StudentPortal home and extract every visible assignment.
+
+    Returns a list of dicts: {lesson_number, assignment_id, title}.
+    """
+    await page.goto(HOME_URL, wait_until="domcontentloaded")
+    await page.wait_for_load_state("networkidle", timeout=NAV_TIMEOUT_MS)
+
+    anchors = await page.query_selector_all("a[href*='assignment']")
+    results: list[dict] = []
+    seen_ids: set[str] = set()
+    for a in anchors:
+        href = await a.get_attribute("href") or ""
+        text = (await a.text_content() or "").strip()
+
+        m_id = re.search(r"assignment/(\d+)", href)
+        m_ln = re.search(r"Lesson\s+(\d+)", text)
+        if not (m_id and m_ln):
+            continue
+        assignment_id = m_id.group(1)
+        if assignment_id in seen_ids:
+            continue
+        seen_ids.add(assignment_id)
+        results.append({
+            "lesson_number": int(m_ln.group(1)),
+            "assignment_id": assignment_id,
+            "title": text,
+        })
+
+    results.sort(key=lambda r: r["lesson_number"])
+    return results
+
+
 async def scrape_assignment(page: Page, assignment_id: str) -> LessonPayload:
     """Navigate to an assignment and extract all problems by URL-based navigation."""
     base_url = f"{RSM_BASE_URL}/#/assignment/{assignment_id}"
