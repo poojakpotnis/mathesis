@@ -47,16 +47,31 @@ async def list_assignments(page: Page) -> list[dict]:
     return results
 
 
-async def scrape_assignment(page: Page, assignment_id: str) -> LessonPayload:
-    """Navigate to an assignment and extract all problems by URL-based navigation."""
+async def scrape_assignment(
+    page: Page,
+    assignment_id: str,
+    grade_override: int | None = None,
+) -> LessonPayload:
+    """Navigate to an assignment and extract all problems by URL-based navigation.
+
+    If `grade_override` is provided, it wins over whatever the page-prefix
+    detector finds (or doesn't find — the prefix is missing from some
+    assignments entirely; see scripts/recon_grade.py findings).
+    """
     base_url = f"{RSM_BASE_URL}/#/assignment/{assignment_id}"
 
     await page.goto(f"{base_url}?q=1", wait_until="domcontentloaded")
     await page.wait_for_selector(SELECTORS["problems_map_items"], timeout=NAV_TIMEOUT_MS)
     await page.wait_for_load_state("networkidle", timeout=NAV_TIMEOUT_MS)
 
-    lesson_number, title, grade_level = await _extract_lesson_info(page)
-    grade_str = f" (Grade {grade_level})" if grade_level else " (grade not detected)"
+    lesson_number, title, detected_grade = await _extract_lesson_info(page)
+    grade_level = grade_override if grade_override is not None else detected_grade
+    if grade_override is not None:
+        grade_str = f" (Grade {grade_override}, user-set)"
+    elif detected_grade is not None:
+        grade_str = f" (Grade {detected_grade}, detected)"
+    else:
+        grade_str = " (grade not detected)"
     console.print(f"[green]Loaded: Lesson {lesson_number} — {title}{grade_str}[/green]")
 
     problem_entries = await _collect_problem_labels(page)
