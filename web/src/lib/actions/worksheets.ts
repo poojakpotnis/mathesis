@@ -36,6 +36,9 @@ export type GenerateWorksheetInput = {
   // just sorted with them first). Used by concept-drill generation where
   // the parent picks one concept and wants only that concept's problems.
   focusOnly?: boolean;
+  // When true, EVERY generated problem must carry a figure (non-figure problems
+  // are dropped). Used for figure stress-tests.
+  figuresOnly?: boolean;
 };
 
 export type GenerateWorksheetResult =
@@ -44,10 +47,6 @@ export type GenerateWorksheetResult =
       worksheetId: number;
       verifiedCount: number;
       flaggedCount: number;
-      // Concept ids on this lesson that were skipped because they're
-      // visual_dominant (taught via diagrams, not text). The worksheet
-      // detail page surfaces these as "Practice from your portal".
-      skippedVisualConcepts: number[];
     }
   | { ok: false; error: string };
 
@@ -64,7 +63,7 @@ export async function generateWorksheetAction(
     return { ok: false, error: "Invalid difficulty" };
   }
 
-  const { lessonId, count, difficulty, focusConceptIds, skipConceptIds, focusOnly } = input;
+  const { lessonId, count, difficulty, focusConceptIds, skipConceptIds, focusOnly, figuresOnly } = input;
 
   // Top-level span. Everything below — generator Anthropic call, verifier
   // Anthropic calls, DB writes — runs inside the active context of this span
@@ -158,41 +157,14 @@ export async function generateWorksheetAction(
     }
   }
 
-  // Apply skipConceptIds first to get the pre-modality candidate set
-  // (concepts the parent didn't explicitly remove). Then split that into
-  // visual_dominant (= what the modality filter takes out of the generator)
-  // and the rest (= input to the generator).
-  //
-  // skippedVisualConcepts is scoped to *eligible* candidates so a parent
-  // who explicitly skipped a visual concept doesn't see it surface again
-  // as portal practice. Stored on the worksheet row so the detail API can
-  // read it back later.
-  let preModalityCandidates = [...byId.values()];
+  // Apply skipConceptIds (concepts the parent explicitly removed). Visual
+  // concepts are now generated (with figures) like any other concept — there
+  // is no modality-based skip anymore (Phase 6.6 removed portal practice).
+  let candidates = [...byId.values()];
   if (skipConceptIds && skipConceptIds.length > 0) {
     const skipSet = new Set(skipConceptIds);
-    preModalityCandidates = preModalityCandidates.filter(
-      (c) => !skipSet.has(c.id)
-    );
+    candidates = candidates.filter((c) => !skipSet.has(c.id));
   }
-
-  // For focusOnly drills, only the focused concepts were in scope. Visual
-  // concepts outside the focus weren't going to appear on this worksheet
-  // regardless of the modality filter, so they shouldn't show up as
-  // portal practice. For lesson-wide generation, every preModality concept
-  // is in scope and the filter actually removed the visual ones.
-  const inScopeForSkipped =
-    focusOnly && focusConceptIds && focusConceptIds.length > 0
-      ? preModalityCandidates.filter((c) => focusConceptIds.includes(c.id))
-      : preModalityCandidates;
-
-  const skippedVisualConcepts: number[] = [];
-  for (const c of inScopeForSkipped) {
-    if (c.modalityTag === "visual_dominant") skippedVisualConcepts.push(c.id);
-  }
-  const skippedVisualSet = new Set(skippedVisualConcepts);
-  let candidates = preModalityCandidates.filter(
-    (c) => !skippedVisualSet.has(c.id)
-  );
 
   // Concept-drill mode: hard-restrict candidates to the focused concept(s).
   // Used by the concepts page "Generate" button — parent picks one concept,
@@ -202,19 +174,10 @@ export async function generateWorksheetAction(
     candidates = candidates.filter((c) => focusSet.has(c.id));
   }
 
-  span.setAttribute(
-    "worksheet.skipped_visual_concept_ids",
-    JSON.stringify(skippedVisualConcepts)
-  );
-  span.setAttribute(
-    "worksheet.skipped_visual_concept_count",
-    skippedVisualConcepts.length
-  );
-
   if (candidates.length === 0) {
     return {
       ok: false,
-      error: "No concepts remain after filtering visual_dominant + applying skipConceptIds",
+      error: "No concepts remain after applying skipConceptIds",
     };
   }
 
@@ -240,6 +203,7 @@ export async function generateWorksheetAction(
     difficulty,
     lessonTitle: lesson.title,
     gradeLevel,
+    figuresOnly,
   });
 
   if (genResult.problems.length === 0) {
@@ -278,6 +242,7 @@ export async function generateWorksheetAction(
       lessonTitle: lesson.title,
       gradeLevel,
       avoidProblems: lessonSourceProblems,
+      figuresOnly,
     });
     const retryPartition = partitionByDuplicates(
       retry.problems,
@@ -289,6 +254,18 @@ export async function generateWorksheetAction(
 
   if (finalProblems.length === 0) {
     return { ok: false, error: "Generator returned only duplicates of source problems" };
+  }
+
+  // figuresOnly: keep only problems that actually carry a figure (belt-and-
+  // suspenders on top of the prompt), so a stress-test worksheet is all figures.
+  if (figuresOnly) {
+    finalProblems = finalProblems.filter((p) => p.figureSvg);
+    if (finalProblems.length === 0) {
+      return {
+        ok: false,
+        error: "figuresOnly: generator produced no figure-bearing problems",
+      };
+    }
   }
 
   span.setAttributes({
@@ -333,7 +310,6 @@ export async function generateWorksheetAction(
       totalProblems: finalProblems.length,
       focusConceptIds: focusConceptIds ? JSON.stringify(focusConceptIds) : null,
       skipConceptIds: skipConceptIds ? JSON.stringify(skipConceptIds) : null,
-      skippedVisualConceptIds: JSON.stringify(skippedVisualConcepts),
       difficultyLevel: difficulty,
       status: "generated",
     })
@@ -351,6 +327,7 @@ export async function generateWorksheetAction(
       displayOrder: idx + 1,
       problemText: p.problemText,
       problemLatex: p.problemLatex,
+      figureSvg: p.figureSvg,
       correctAnswer: p.correctAnswer,
       answerFormatType: p.answerFormatType,
       solutionSteps: p.solutionSteps,
@@ -416,7 +393,6 @@ export async function generateWorksheetAction(
     worksheetId: worksheet.id,
     verifiedCount,
     flaggedCount,
-    skippedVisualConcepts,
   };
     }
   );
@@ -448,18 +424,11 @@ export async function generateConceptWorksheetAction(
     .select({
       id: concepts.id,
       name: concepts.name,
-      modalityTag: concepts.modalityTag,
     })
     .from(concepts)
     .where(eq(concepts.id, conceptId))
     .limit(1);
   if (!concept) return { ok: false, error: "Concept not found" };
-  if (concept.modalityTag === "visual_dominant") {
-    return {
-      ok: false,
-      error: `"${concept.name}" is taught with diagrams in the source. Use the portal directly for this concept.`,
-    };
-  }
 
   const lessonCounts = await db()
     .select({

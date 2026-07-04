@@ -24,6 +24,7 @@ export type GeneratorAnswerFormat =
 export type GeneratedProblem = {
   problemText: string;
   problemLatex: string | null;
+  figureSvg: string | null;
   correctAnswer: string;
   answerFormatType: GeneratorAnswerFormat;
   solutionSteps: string | null;
@@ -47,8 +48,8 @@ const DIFFICULTY_GUIDANCE: Record<GeneratorDifficulty, string> = {
     "Generate problems in PROGRESSIVE difficulty: start with 1-2 warm-up problems matching the source, then gradually ramp up to harder variants by the last problems.",
 };
 
-function buildSystemPrompt(gradeLevel: number): string {
-  return `You are a math curriculum expert creating practice problems for a Grade ${gradeLevel} student.
+function buildSystemPrompt(gradeLevel: number, figuresOnly = false): string {
+  const base = `You are a math curriculum expert creating practice problems for a Grade ${gradeLevel} student.
 
 Your task: generate practice problems that exercise the given concepts, modeled after the source example problems where provided.
 
@@ -63,7 +64,22 @@ Guidelines:
 8. difficultyRating: integer 1-5. 1=easier than source, 3=matches source, 5=much harder.
 9. sourceScrapedProblemId: if you closely modeled this problem after one of the example problems, set this to that scraped_problem id. Otherwise null.
 10. Vary the surface form. Don't just change numbers — vary phrasing, contexts (word problems vs. pure computation), and presentation. The student should not feel they're solving the same problem 10 times. You must NOT reproduce any source example problem verbatim; every generated problem must differ substantively (different numbers AND/OR different phrasing) from every source example.
-11. Every problem must be unambiguous, solvable with the listed concepts only, and have a single correct answer that you can verify yourself.`;
+11. Every problem must be unambiguous, solvable with the listed concepts only, and have a single correct answer that you can verify yourself.
+
+FIGURES (number lines, labeled shapes, bar models, coordinate grids, fraction bars, etc.):
+12. TEXT IS THE SOURCE OF TRUTH. If a problem uses a figure, problemText MUST independently state every quantity, label, and spatial relationship the figure shows — enough that a reader who cannot see the figure could still solve it completely. The figure only re-states, in a picture, facts already in the text. Never put a number ONLY in the figure.
+13. NEVER LABEL A VALUE THE STUDENT MUST FIND OR DERIVE. The figure may only show quantities that are GIVEN in problemText. If a dimension is unknown or must be computed, either leave it unlabeled or label it with the given relationship/variable — never the solved number. Example: for "The length of a rectangle is 3 times its width and 10 units longer than it is wide; find the area", the width and length are what the student solves for, so do NOT label the sides "5" and "15". Instead label the short side "w" and the long side "3w" (or leave a side marked "?"). Putting the answer on the figure ruins the problem.
+14. SVG requirements: a single <svg> element with a viewBox (no fixed width/height); no external references (no external fonts, images, hrefs, scripts, or event handlers); dark strokes and labels (#1a1a1a) on a white background; font-size around 14-16 in viewBox units. ALL text and shapes must sit FULLY INSIDE the viewBox with at least ~15 units of margin from every edge — make the viewBox large enough that no label is clipped (labels on the right/bottom are the usual offenders; give them room). Every number/label in the figure must also appear in problemText (per rules 12-13).
+15. When a figure genuinely helps a Grade ${gradeLevel} student AND can be drawn correctly from the given facts, set figureSvg to such an SVG; otherwise set it to null. Prefer null over a figure you are not confident is correct and non-leaking — a wrong or answer-revealing figure is worse than none, and the text already carries the problem. Do NOT emit a figure for purely computational or verbal problems (no spatial/visual structure). Most problems should have figureSvg = null.`;
+
+  if (!figuresOnly) return base;
+
+  return (
+    base +
+    `
+
+FIGURE-ONLY MODE (overrides guideline 15's "most problems null"): EVERY problem you generate MUST include a valid figureSvg — never null. Only generate problems that are genuinely visual and can be drawn correctly WITHOUT revealing the answer: number lines, labeled rectangles/triangles/polygons, angle diagrams, bar models, fraction bars or circles, coordinate grids and points, area/perimeter on a drawn shape, nets of 3D shapes, path-tracing grids, etc. Aim for VARIETY — use several different figure types across the set, not the same shape repeated. Every figure must still obey rules 12-14 (text self-contained, labels show only GIVEN quantities never the solved answer, all labels inside the viewBox). If a concept cannot be turned into a correct, non-leaking, self-contained figure, choose a different visual problem instead — do NOT emit a text-only problem, and do NOT emit a figure whose meaning lives only in the picture (e.g. "find the area of THIS shape" with an arbitrary undescribable outline).`
+  );
 }
 
 const ANSWER_FORMAT_TYPES = [
@@ -90,6 +106,11 @@ const OUTPUT_SCHEMA = {
           problemLatex: {
             type: ["string", "null"],
             description: "Optional LaTeX rendering of the problem",
+          },
+          figureSvg: {
+            type: ["string", "null"],
+            description:
+              "Self-contained SVG figure (single <svg> with viewBox, no external refs), or null. Every number/label in it must also appear in problemText.",
           },
           correctAnswer: {
             type: "string",
@@ -120,6 +141,7 @@ const OUTPUT_SCHEMA = {
         required: [
           "problemText",
           "problemLatex",
+          "figureSvg",
           "correctAnswer",
           "answerFormatType",
           "solutionSteps",
@@ -157,9 +179,10 @@ export async function generateProblems(args: {
   lessonTitle: string;
   gradeLevel: number;
   avoidProblems?: { id: number; problemText: string }[];
+  figuresOnly?: boolean;
 }): Promise<GeneratorResult> {
-  const { concepts, count, difficulty, lessonTitle, gradeLevel, avoidProblems } = args;
-  const systemPrompt = buildSystemPrompt(gradeLevel);
+  const { concepts, count, difficulty, lessonTitle, gradeLevel, avoidProblems, figuresOnly } = args;
+  const systemPrompt = buildSystemPrompt(gradeLevel, figuresOnly);
   if (concepts.length === 0 || count <= 0) {
     return { problems: [] };
   }

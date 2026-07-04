@@ -1,0 +1,1 @@
+ALTER TABLE `generated_problems` ADD `figure_svg` text;

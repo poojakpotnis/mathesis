@@ -8,6 +8,7 @@ import {
   generatedProblems,
 } from "@/lib/db/schema";
 import { WorksheetPdf } from "@/lib/pdf/worksheet-pdf";
+import { figureSvgToPngDataUri } from "@/lib/pdf/rasterize";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -39,11 +40,12 @@ export async function GET(
     return NextResponse.json({ error: "Worksheet not found" }, { status: 404 });
   }
 
-  const problems = await db()
+  const problemRows = await db()
     .select({
       displayOrder: generatedProblems.displayOrder,
       problemText: generatedProblems.problemText,
       problemLatex: generatedProblems.problemLatex,
+      figureSvg: generatedProblems.figureSvg,
       correctAnswer: generatedProblems.correctAnswer,
       answerFormatType: generatedProblems.answerFormatType,
       solutionSteps: generatedProblems.solutionSteps,
@@ -52,6 +54,14 @@ export async function GET(
     .from(generatedProblems)
     .where(eq(generatedProblems.worksheetId, id))
     .orderBy(generatedProblems.displayOrder);
+
+  // Rasterize each figure SVG to a PNG data URI here (react-pdf can't embed raw
+  // SVG). A figure that fails to render becomes null and the problem prints as
+  // text-only — the text is self-contained, so nothing is lost.
+  const problems = problemRows.map(({ figureSvg, ...p }) => ({
+    ...p,
+    figurePng: figureSvgToPngDataUri(figureSvg),
+  }));
 
   const buffer = await renderToBuffer(
     <WorksheetPdf

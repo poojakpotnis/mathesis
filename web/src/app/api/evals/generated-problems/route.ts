@@ -31,6 +31,7 @@ export async function GET(request: NextRequest) {
       correctAnswer: generatedProblems.correctAnswer,
       solutionSteps: generatedProblems.solutionSteps,
       answerFormatType: generatedProblems.answerFormatType,
+      figureSvg: generatedProblems.figureSvg,
     })
     .from(generatedProblems)
     .innerJoin(worksheets, eq(generatedProblems.worksheetId, worksheets.id))
@@ -108,7 +109,6 @@ export async function GET(request: NextRequest) {
   ): { problem_number: string; problem_text: string; concept_names: string[] }[] {
     const pool = scrapedByLesson.get(lessonId) ?? [];
     const scored = pool
-      .filter((s) => !s.hasImage)
       .map((s) => {
         const tags = conceptsByScraped.get(s.id) ?? new Set<string>();
         let overlap = 0;
@@ -136,6 +136,7 @@ export async function GET(request: NextRequest) {
       correct_answer: r.correctAnswer,
       answer_format_type: r.answerFormatType,
       solution_steps: r.solutionSteps,
+      figure_svg: r.figureSvg,
       concepts: conceptList,
       reference_problems: pickReferences(r.lessonId, genConceptNames),
     };
