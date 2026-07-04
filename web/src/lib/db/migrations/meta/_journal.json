@@ -36,6 +36,13 @@
       "when": 1781238099301,
       "tag": "0004_phase_6_5_worksheets_skipped_visual",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1783035459296,
+      "tag": "0005_phase_6_6_generated_problems_figure_svg",
+      "breakpoints": true
     }
   ]
 }

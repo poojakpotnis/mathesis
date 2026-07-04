@@ -117,6 +117,12 @@ export const generatedProblems = sqliteTable("generated_problems", {
   displayOrder: integer("display_order").notNull(),
   problemText: text("problem_text").notNull(),
   problemLatex: text("problem_latex"),
+  // Self-contained SVG figure for the problem, or NULL. The figure is a
+  // *visual restatement* of information that is also fully present in
+  // problemText — never the sole carrier of a fact — so the text-only
+  // verifier can still re-solve, and a mis-rendered figure degrades to a
+  // plain-text problem rather than teaching something wrong. (Phase 6.6)
+  figureSvg: text("figure_svg"),
   correctAnswer: text("correct_answer").notNull(),
   answerFormatType: text("answer_format_type").notNull(),
   solutionSteps: text("solution_steps"),

@@ -3,6 +3,7 @@ import {
   Page,
   Text,
   View,
+  Image,
   StyleSheet,
 } from "@react-pdf/renderer";
 
@@ -10,6 +11,9 @@ export type PdfProblem = {
   displayOrder: number;
   problemText: string;
   problemLatex: string | null;
+  // PNG data URI of the rasterized figure SVG (react-pdf can't embed raw SVG),
+  // or null. Rasterized in the PDF route via ../rasterize.ts.
+  figurePng: string | null;
   correctAnswer: string;
   answerFormatType: string;
   solutionSteps: string | null;
@@ -69,6 +73,11 @@ const styles = StyleSheet.create({
   },
   problemText: {
     lineHeight: 1.5,
+  },
+  figure: {
+    marginTop: 8,
+    width: 220,
+    objectFit: "contain",
   },
   answerLine: {
     marginTop: 10,
@@ -142,6 +151,8 @@ export function WorksheetPdf({ worksheet }: { worksheet: PdfWorksheet }) {
             <Text style={styles.problemNumber}>{p.displayOrder}.</Text>
             <View style={styles.problemBody}>
               <Text style={styles.problemText}>{preferredText(p)}</Text>
+              {/* eslint-disable-next-line jsx-a11y/alt-text -- react-pdf Image, not HTML img */}
+              {p.figurePng && <Image style={styles.figure} src={p.figurePng} />}
               <View style={styles.answerLine} />
             </View>
           </View>
@@ -166,6 +177,8 @@ export function WorksheetPdf({ worksheet }: { worksheet: PdfWorksheet }) {
             <Text style={styles.problemNumber}>{p.displayOrder}.</Text>
             <View style={styles.problemBody}>
               <Text style={styles.problemText}>{preferredText(p)}</Text>
+              {/* eslint-disable-next-line jsx-a11y/alt-text -- react-pdf Image, not HTML img */}
+              {p.figurePng && <Image style={styles.figure} src={p.figurePng} />}
               <Text style={styles.answer}>
                 <Text style={styles.answerLabel}>Answer </Text>
                 {p.correctAnswer}

@@ -31,8 +31,6 @@ import {
   Download,
   XCircle,
   Pencil,
-  ImageIcon,
-  ChevronDown,
   Trash2,
 } from "lucide-react";
 import {
@@ -61,6 +59,7 @@ type GeneratedProblem = {
   displayOrder: number;
   problemText: string;
   problemLatex: string | null;
+  figureSvg: string | null;
   correctAnswer: string;
   answerFormatType: string;
   solutionSteps: string | null;
@@ -87,25 +86,9 @@ type Worksheet = {
   totalAttempted: number | null;
 };
 
-type PortalProblem = {
-  id: number;
-  problemNumber: string;
-  problemText: string;
-  hasImage: boolean;
-  imageDescription: string | null;
-};
-
-type PortalConcept = {
-  conceptId: number;
-  conceptName: string;
-  conceptDisplayName: string;
-  problems: PortalProblem[];
-};
-
 type Detail = {
   worksheet: Worksheet;
   problems: GeneratedProblem[];
-  portalPractice?: PortalConcept[];
 };
 
 export default function WorksheetDetailPage() {
@@ -286,8 +269,6 @@ export default function WorksheetDetailPage() {
           </div>
         </TabsContent>
       </Tabs>
-
-      <PortalPracticeSection items={data.portalPractice ?? []} />
     </div>
   );
 }
@@ -362,94 +343,6 @@ function DeleteWorksheetButton({
         </DialogFooter>
       </DialogContent>
     </Dialog>
-  );
-}
-
-function PortalPracticeSection({ items }: { items: PortalConcept[] }) {
-  // Visual-dominant concepts where the curriculum teaches via labeled
-  // diagrams. The text generator can't faithfully reproduce them, so the
-  // worksheet skips them and we point the kid at the actual portal problems.
-  // Hidden from print: this is on-screen reading material, not part of the
-  // printed worksheet.
-  const [open, setOpen] = useState(true);
-  if (items.length === 0) return null;
-  const total = items.reduce((acc, c) => acc + c.problems.length, 0);
-
-  return (
-    <section className="mt-10 print:hidden">
-      <Separator className="mb-6" />
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-2 text-left group"
-      >
-        <ChevronDown
-          className={`w-4 h-4 text-muted-foreground transition-transform ${
-            open ? "" : "-rotate-90"
-          }`}
-        />
-        <h3
-          className="text-xl tracking-tight text-foreground"
-          style={{ fontFamily: "var(--font-heading)" }}
-        >
-          Also practice from your portal
-        </h3>
-        <Badge variant="outline" className="text-[10px]">
-          {total} problem{total === 1 ? "" : "s"}
-        </Badge>
-      </button>
-      <p className="text-xs text-muted-foreground mt-1 ml-6">
-        These concepts are taught with diagrams in the source material, so the
-        worksheet skips them. Do them in the portal instead.
-      </p>
-
-      {open && (
-        <div className="mt-4 space-y-5">
-          {items.map((c) => (
-            <div key={c.conceptId}>
-              <div className="flex items-center gap-2 mb-2">
-                <h4 className="text-sm font-medium text-foreground">
-                  {c.conceptDisplayName}
-                </h4>
-                <Badge variant="secondary" className="text-[10px] font-normal">
-                  visual_dominant
-                </Badge>
-              </div>
-              <ul className="space-y-2">
-                {c.problems.map((p) => (
-                  <li
-                    key={p.id}
-                    className="rounded-md border border-border bg-card px-4 py-3 text-sm"
-                  >
-                    <div className="flex items-start gap-2.5">
-                      <span
-                        className="text-primary/70 tabular-nums min-w-[2.5rem]"
-                        style={{ fontFamily: "var(--font-heading)" }}
-                      >
-                        {p.problemNumber}.
-                      </span>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-foreground whitespace-pre-wrap leading-relaxed">
-                          {p.problemText}
-                        </p>
-                        {(p.hasImage || p.imageDescription) && (
-                          <div className="mt-1.5 flex items-start gap-1.5 text-[11px] text-muted-foreground">
-                            <ImageIcon className="w-3.5 h-3.5 mt-0.5 shrink-0" />
-                            <span>
-                              {p.imageDescription ?? "Includes a diagram"}
-                            </span>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ))}
-        </div>
-      )}
-    </section>
   );
 }
 
@@ -635,6 +528,7 @@ function ScoreProblem({
           <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap">
             {problem.problemText}
           </p>
+          <FigureSvg svg={problem.figureSvg} />
 
           <div className="mt-3 text-sm">
             <span className="text-xs uppercase tracking-wider text-muted-foreground mr-2">
@@ -762,6 +656,31 @@ function ScoreProblem({
   );
 }
 
+// Renders a generated figure. The SVG is loaded through an <img> data URI
+// rather than injected inline: an <img>-loaded SVG is an isolated document
+// that cannot run scripts or fetch external resources, so no sanitization is
+// needed. White background so the model's dark strokes read regardless of the
+// page theme (and matches how it will print). Null figure renders nothing.
+function FigureSvg({ svg }: { svg: string | null }) {
+  if (!svg) return null;
+  const src = `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+  return (
+    <div className="mt-3 inline-block rounded-md border border-border bg-white p-3">
+      {/* Explicit width is required: the SVG has a viewBox but no intrinsic
+          width/height, so an <img> with auto width collapses to nothing. With a
+          fixed width the browser derives height from the viewBox aspect ratio.
+          A data-URI SVG can't run scripts, and next/image can't optimize it. */}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={src}
+        alt="Figure for this problem"
+        width={280}
+        className="block h-auto w-[280px] max-w-full"
+      />
+    </div>
+  );
+}
+
 function WorksheetProblem({ problem }: { problem: GeneratedProblem }) {
   return (
     <div className="border border-border rounded-lg px-5 py-4 bg-card">
@@ -776,6 +695,7 @@ function WorksheetProblem({ problem }: { problem: GeneratedProblem }) {
           <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap">
             {problem.problemText}
           </p>
+          <FigureSvg svg={problem.figureSvg} />
           <div className="mt-3 h-8 border-b border-dashed border-border" />
         </div>
       </div>
@@ -826,6 +746,7 @@ function AnswerKeyProblem({
           <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap">
             {problem.problemText}
           </p>
+          <FigureSvg svg={problem.figureSvg} />
 
           <div className="mt-3 grid gap-2 text-sm">
             <div>

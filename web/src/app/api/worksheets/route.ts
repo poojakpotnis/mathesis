@@ -19,6 +19,7 @@ const WorksheetSchema = z.object({
   difficulty: z.enum(["easier", "match", "harder", "progressive"]),
   focus_concept_ids: z.array(z.number().int().positive()).optional(),
   skip_concept_ids: z.array(z.number().int().positive()).optional(),
+  figures_only: z.boolean().optional(),
 });
 
 const WorksheetListQuerySchema = z.object({
@@ -97,6 +98,7 @@ export async function POST(request: NextRequest) {
     difficulty: parsed.data.difficulty,
     focusConceptIds: parsed.data.focus_concept_ids,
     skipConceptIds: parsed.data.skip_concept_ids,
+    figuresOnly: parsed.data.figures_only,
   });
 
   if (!result.ok) {

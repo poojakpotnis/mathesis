@@ -2,12 +2,13 @@
 
 What this does
 --------------
-Scores each generated worksheet problem on three axes using a Claude Opus 4.7
+Scores each generated worksheet problem on four axes using a Claude Opus 4.7
 judge with adaptive thinking and structured output:
 
   - level_match — does the generated problem sit at the same level as same-lesson RSM references?
   - on_concept        — does solving it actually require the named concept?
   - well_formed       — is the problem itself clean (unambiguous, single-answer)?
+  - figure_quality    — is the figure correct and non-leaking (or correctly absent)? judged from SVG source.
 
 Each axis gets a 1-5 score plus a one- or two-sentence explanation. Aggregate
 metrics: mean per axis across the corpus, and pass-rate at threshold 4
@@ -103,6 +104,27 @@ WELL-FORMED (is the problem itself clean?)
  2 — Multiple reasonable interpretations leading to different answers, OR confusing notation.
  1 — Contradictory premises, no valid solution, or asks for one answer when multiple exist.
 
+FIGURE-QUALITY (is the figure correct, and present exactly when the problem needs one?)
+Applies to EVERY problem. You are shown the figure as raw SVG source, or "(no figure)". The rule \
+this generator follows: the problem text is self-contained (every fact needed to solve is in the \
+text), and the figure is a redundant visual restatement that must NOT reveal any value the \
+student is asked to find or derive.
+ 5 — Correct. EITHER the problem needs no figure and none is present; OR a figure is present and \
+every label/value in it also appears in the problem text, it reveals no value the student must \
+compute, and it is self-contained (single <svg>, viewBox, no external refs/scripts).
+ 4 — Figure present and essentially right, with a trivial nit (e.g., a mildly redundant label).
+ 3 — Figure usable but with a real weakness readable from the source: a <text> label placed at/beyond \
+the viewBox edge (likely to clip), or a minor inconsistency with the text.
+ 2 — Figure LEAKS the answer (labels a quantity the problem asks the student to find/derive), OR \
+contradicts the text (a number in the figure differs from the text), OR the problem clearly needs \
+a figure and none is present.
+ 1 — Malformed/unreadable SVG, meaning lives only in the picture (undescribable), or the figure \
+badly misrepresents the problem.
+Judge from the SVG source: you can read <text> labels and coordinates and compare them to the text \
+and viewBox. You cannot see the final raster, so do not penalize purely visual aesthetics you \
+cannot verify — focus on answer-leaks, text/figure mismatches, missing-when-needed, near-edge \
+label coordinates, and malformed SVG.
+
 For each axis, give the score and a 1-2 sentence explanation referencing SPECIFIC aspects \
 of the problem (and, for level-match, specific aspects of the references). Do not pad — \
 short, concrete explanations beat long generic ones."""
@@ -117,6 +139,7 @@ class JudgeVerdict(BaseModel):
     level_match: AxisVerdict
     on_concept: AxisVerdict
     well_formed: AxisVerdict
+    figure_quality: AxisVerdict
 
 
 def fetch_problems() -> list[dict[str, Any]]:
@@ -151,6 +174,8 @@ def _format_user_prompt(problem: dict[str, Any]) -> str:
         f"Named concept(s):\n" + "\n".join(concept_lines) + "\n\n"
         f"Problem text:\n{problem['problem_text']}\n\n"
         f"Expected answer:\n{problem['correct_answer']}\n\n"
+        f"Figure (raw SVG source, for FIGURE-QUALITY — or '(no figure)'):\n"
+        f"{(problem.get('figure_svg') or '').strip() or '(no figure)'}\n\n"
         f"Solution steps (for context — judge the problem, not the solution):\n"
         f"{problem.get('solution_steps') or '(none)'}\n"
     )
@@ -188,10 +213,12 @@ def _scored_row(problem: dict[str, Any], verdict: JudgeVerdict) -> dict[str, Any
         "level_match": verdict.level_match.model_dump(),
         "on_concept": verdict.on_concept.model_dump(),
         "well_formed": verdict.well_formed.model_dump(),
+        "figure_quality": verdict.figure_quality.model_dump(),
+        "has_figure": bool((problem.get("figure_svg") or "").strip()),
     }
 
 
-AXES = ("level_match", "on_concept", "well_formed")
+AXES = ("level_match", "on_concept", "well_formed", "figure_quality")
 
 
 def aggregate_metrics(rows: list[dict[str, Any]]) -> dict[str, Any]:
@@ -207,6 +234,7 @@ def aggregate_metrics(rows: list[dict[str, Any]]) -> dict[str, Any]:
             "level_match_mean": 0.0,
             "on_concept_mean": 0.0,
             "well_formed_mean": 0.0,
+            "figure_quality_mean": 0.0,
             "pass_rate": 0.0,
         }
     n = len(rows)
@@ -215,6 +243,7 @@ def aggregate_metrics(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "level_match_mean": sum(r["level_match"]["score"] for r in rows) / n,
         "on_concept_mean": sum(r["on_concept"]["score"] for r in rows) / n,
         "well_formed_mean": sum(r["well_formed"]["score"] for r in rows) / n,
+        "figure_quality_mean": sum(r["figure_quality"]["score"] for r in rows) / n,
         "pass_rate": sum(
             1 for r in rows if all(r[a]["score"] >= 4 for a in AXES)
         ) / n,
@@ -284,7 +313,7 @@ def _print_summary(rows: list[dict[str, Any]]) -> None:
         print("No problems scored.")
         return
 
-    axes = ("level_match", "on_concept", "well_formed")
+    axes = AXES
     print()
     print(f"=== problem_quality_eval (N={len(rows)}, judge={JUDGE_MODEL}) ===")
     print()
@@ -300,21 +329,21 @@ def _print_summary(rows: list[dict[str, Any]]) -> None:
         1 for r in rows if all(r[a]["score"] >= 4 for a in axes)
     ) / len(rows) * 100
     print()
-    print(f"Overall pass-rate (all 3 axes ≥ 4): {overall_pass:.0f}% ({sum(1 for r in rows if all(r[a]['score'] >= 4 for a in axes))}/{len(rows)})")
+    print(f"Overall pass-rate (all {len(axes)} axes ≥ 4): {overall_pass:.0f}% ({sum(1 for r in rows if all(r[a]['score'] >= 4 for a in axes))}/{len(rows)})")
 
     by_ws: dict[int, list[dict[str, Any]]] = defaultdict(list)
     for r in rows:
         by_ws[r["worksheet_id"]].append(r)
     print()
     print("Per-worksheet rollup:")
-    print(f"  {'ws':<4}{'N':<4}{'LM':<8}{'OC':<8}{'WF':<8}{'pass':<6}")
+    print(f"  {'ws':<4}{'N':<4}{'LM':<8}{'OC':<8}{'WF':<8}{'FQ':<8}{'pass':<6}")
     for ws in sorted(by_ws):
         rs = by_ws[ws]
         means = {a: sum(r[a]["score"] for r in rs) / len(rs) for a in axes}
         pass_ws = sum(1 for r in rs if all(r[a]["score"] >= 4 for a in axes)) / len(rs) * 100
         print(
             f"  {ws:<4}{len(rs):<4}"
-            f"{means['level_match']:<8.2f}{means['on_concept']:<8.2f}{means['well_formed']:<8.2f}"
+            f"{means['level_match']:<8.2f}{means['on_concept']:<8.2f}{means['well_formed']:<8.2f}{means['figure_quality']:<8.2f}"
             f"{pass_ws:<6.0f}"
         )
 
@@ -342,6 +371,12 @@ def main() -> int:
         help="Score only the first N problems (cheap iteration / smoke test).",
     )
     parser.add_argument(
+        "--worksheet",
+        type=int,
+        default=None,
+        help="Score only problems from this worksheet id (cheap targeted run).",
+    )
+    parser.add_argument(
         "--out",
         type=Path,
         default=None,
@@ -358,6 +393,8 @@ def main() -> int:
 
     print(f"[eval] fetching generated problems from {MATHESIS_API_URL}...")
     problems = fetch_problems()
+    if args.worksheet is not None:
+        problems = [p for p in problems if p["worksheet_id"] == args.worksheet]
     if args.limit is not None:
         problems = problems[: args.limit]
     print(f"[eval] scoring {len(problems)} problems with {JUDGE_MODEL}...")
@@ -376,7 +413,8 @@ def main() -> int:
             f"ws={problem['worksheet_id']:<3} "
             f"LM={verdict.level_match.score} "
             f"OC={verdict.on_concept.score} "
-            f"WF={verdict.well_formed.score}"
+            f"WF={verdict.well_formed.score} "
+            f"FQ={verdict.figure_quality.score}"
         )
 
     _print_summary(rows)
