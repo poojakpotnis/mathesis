@@ -1,4 +1,3 @@
-import { Resvg } from "@resvg/resvg-js";
 import { writeFileSync, existsSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
@@ -37,6 +36,11 @@ function ensureFontFile(): string {
 export function figureSvgToPngDataUri(svg: string | null): string | null {
   if (!svg) return null;
   try {
+    // Lazily load the native rasterizer inside the try/catch. If it fails to
+    // load or render in a given environment, this problem prints text-only (the
+    // text is self-contained) instead of 500-ing the whole PDF route.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { Resvg } = require("@resvg/resvg-js") as typeof import("@resvg/resvg-js");
     const resvg = new Resvg(svg, {
       background: "white",
       fitTo: { mode: "width", value: RASTER_WIDTH },
