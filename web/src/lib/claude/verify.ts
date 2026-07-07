@@ -1,7 +1,15 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { llmSpan } from "@/lib/otel/tracer";
 
-const MODEL = "claude-opus-4-6";
+// The verifier's job is narrow: independently re-solve one Grade-4 problem and
+// compare answers. That's squarely within Sonnet's range, and this is the
+// highest-frequency call in the app (N per worksheet), so it's where model cost
+// matters most. Sonnet 5 ($3/$15 vs Opus $5/$25) at `effort: low` (re-solving
+// grade-school math needs little deliberation, and thinking bills as output)
+// cuts per-call cost ~50-70% with no measured calibration change — validated by
+// the verifier smoke harness (scripts/verify_smoke.ts) and the ongoing
+// verifier_calibration_eval flag-precision numbers.
+const MODEL = "claude-sonnet-5";
 
 export type VerifyInput = {
   problemText: string;
@@ -155,6 +163,9 @@ export async function verifyProblem(input: VerifyInput): Promise<VerifyResult> {
         system: systemPrompt,
         messages: [{ role: "user", content: userPrompt }],
         output_config: {
+          // Grade-school re-solve; shallow thinking is enough and keeps the
+          // (output-billed) thinking tokens down. See the MODEL comment.
+          effort: "low",
           format: { type: "json_schema", schema: OUTPUT_SCHEMA },
         },
       });

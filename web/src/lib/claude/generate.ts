@@ -1,7 +1,12 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { llmSpan } from "@/lib/otel/tracer";
 
-const MODEL = "claude-opus-4-6";
+// Generation is the core of the feature (novel, self-contained, non-leaking
+// problems + figures), so it stays on Opus — the top tier — at full thinking.
+// Opus 4.6/4.7/4.8 are all priced the same ($5/$25 per 1M), so tracking the
+// latest Opus is a free quality upgrade with no cost change. Cost savings come
+// from the verifier (Sonnet 5), never from compromising here.
+const MODEL = "claude-opus-4-8";
 
 export type GeneratorInputConcept = {
   id: number;
