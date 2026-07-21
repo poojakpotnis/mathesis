@@ -26,7 +26,7 @@ export function Sidebar({ user, signOutAction }: Props) {
   const pathname = usePathname();
 
   return (
-    <aside className="fixed left-0 top-0 bottom-0 w-64 border-r border-border bg-sidebar flex flex-col z-30">
+    <aside className="fixed left-0 top-0 bottom-0 w-64 border-r border-border bg-sidebar flex flex-col z-30 print:hidden">
       <div className="px-6 py-8">
         <Link href="/" className="block group">
           <h1

@@ -496,8 +496,8 @@ function ScoreProblem({
           : "border-border bg-card"
       }`}
     >
-      <div className="flex items-start gap-4">
-        <div className="flex items-center gap-1.5 min-w-[3.25rem] pt-0.5">
+      <div className="flex items-start gap-3">
+        <div className="flex items-center gap-1.5 min-w-[1.75rem] pt-0.5">
           <span
             className="text-sm font-medium text-primary/70 tabular-nums"
             style={{ fontFamily: "var(--font-heading)" }}
