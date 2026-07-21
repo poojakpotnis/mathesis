@@ -40,8 +40,10 @@ export default async function RootLayout({
     <html lang="en" className={`${serif.variable} ${sans.variable} h-full`}>
       <body className="min-h-full flex bg-background text-foreground antialiased">
         <Sidebar user={user} signOutAction={signOutAction} />
-        <main className="flex-1 ml-64 min-h-screen">
-          <div className="max-w-6xl mx-auto px-8 py-10">{children}</div>
+        <main className="flex-1 ml-64 min-h-screen print:ml-0">
+          <div className="max-w-6xl mx-auto px-8 py-10 print:max-w-none print:px-0 print:py-0">
+            {children}
+          </div>
         </main>
       </body>
     </html>
