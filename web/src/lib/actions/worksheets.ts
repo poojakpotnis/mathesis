@@ -401,20 +401,29 @@ export async function generateWorksheetAction(
 // Concept drill. Picks the lesson where the concept has the most source
 // problems (richest reference set for the generator), then calls
 // generateWorksheetAction with focusOnly so the worksheet contains only
-// that concept's problems. Difficulty is fixed to "progressive" — the kid
-// is here because they're struggling, ramp them up.
-const CONCEPT_DRILL_DIFFICULTY: GeneratorDifficulty = "progressive";
+// that concept's problems. Defaults to "progressive" — the kid is often
+// here because they're struggling, so ramp them up — but the dialog can
+// request "harder" for a kid who has the concept down and wants a stretch.
+const DEFAULT_CONCEPT_DRILL_DIFFICULTY: GeneratorDifficulty = "progressive";
+const ALLOWED_CONCEPT_DRILL_DIFFICULTIES: GeneratorDifficulty[] = [
+  "progressive",
+  "harder",
+];
 
 export async function generateConceptWorksheetAction(
   conceptId: number,
   count: number,
-  lessonId?: number
+  lessonId?: number,
+  difficulty: GeneratorDifficulty = DEFAULT_CONCEPT_DRILL_DIFFICULTY
 ): Promise<GenerateWorksheetResult> {
   if (!Number.isInteger(conceptId) || conceptId <= 0) {
     return { ok: false, error: "Invalid conceptId" };
   }
   if (!Number.isInteger(count) || count < 1 || count > 30) {
     return { ok: false, error: "Count must be between 1 and 30" };
+  }
+  if (!ALLOWED_CONCEPT_DRILL_DIFFICULTIES.includes(difficulty)) {
+    return { ok: false, error: "Unsupported difficulty" };
   }
   if (lessonId !== undefined && (!Number.isInteger(lessonId) || lessonId <= 0)) {
     return { ok: false, error: "Invalid lessonId" };
@@ -469,7 +478,7 @@ export async function generateConceptWorksheetAction(
   return generateWorksheetAction({
     lessonId: chosenLessonId,
     count,
-    difficulty: CONCEPT_DRILL_DIFFICULTY,
+    difficulty,
     focusConceptIds: [conceptId],
     focusOnly: true,
   });

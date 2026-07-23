@@ -16,8 +16,18 @@ import {
 import { ChevronDown, ChevronRight, Sparkles, BookOpen, FileText } from "lucide-react";
 import { generateConceptWorksheetAction } from "@/lib/actions/worksheets";
 
-const COUNT_OPTIONS = [4, 6, 8, 10, 12];
+const COUNT_OPTIONS = [4, 6, 8, 10, 12, 15];
 const DEFAULT_COUNT = 8;
+
+// The concept drill exposes two of the generator's difficulty modes.
+// "progressive" ramps easy→hard (default — the kid is here because they're
+// struggling); "harder" holds every problem above the source difficulty.
+const DRILL_DIFFICULTY_OPTIONS = [
+  { value: "progressive" as const, label: "Progressive" },
+  { value: "harder" as const, label: "Hard" },
+];
+type DrillDifficulty = (typeof DRILL_DIFFICULTY_OPTIONS)[number]["value"];
+const DEFAULT_DIFFICULTY: DrillDifficulty = "progressive";
 
 type MasteryLevel = "not_started" | "learning" | "practicing" | "mastered";
 type ModalityTag = "text_dominant" | "mixed" | "visual_dominant";
@@ -262,6 +272,8 @@ function ConceptDrillButton({ row }: { row: ConceptRow }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [count, setCount] = useState(DEFAULT_COUNT);
+  const [difficulty, setDifficulty] =
+    useState<DrillDifficulty>(DEFAULT_DIFFICULTY);
   // Default to the first lesson — API sorts by source count desc, so this
   // is the lesson with the richest reference set. Parent can override.
   const [lessonId, setLessonId] = useState<number | null>(
@@ -283,7 +295,12 @@ function ConceptDrillButton({ row }: { row: ConceptRow }) {
     if (lessonId == null) return;
     setError(null);
     startTransition(async () => {
-      const res = await generateConceptWorksheetAction(row.id, count, lessonId);
+      const res = await generateConceptWorksheetAction(
+        row.id,
+        count,
+        lessonId,
+        difficulty
+      );
       if (res.ok) {
         setOpen(false);
         router.push(`/worksheets/${res.worksheetId}`);
@@ -314,7 +331,9 @@ function ConceptDrillButton({ row }: { row: ConceptRow }) {
         <DialogHeader>
           <DialogTitle>Drill {row.displayName}</DialogTitle>
           <DialogDescription>
-            Progressive worksheet — problems ramp from easier to harder.
+            {difficulty === "progressive"
+              ? "Progressive worksheet — problems ramp from easier to harder."
+              : "Hard worksheet — every problem sits above the source difficulty."}
           </DialogDescription>
         </DialogHeader>
 
@@ -342,6 +361,26 @@ function ConceptDrillButton({ row }: { row: ConceptRow }) {
             </div>
           </div>
         )}
+
+        <div className="py-2">
+          <label className="text-xs uppercase tracking-wider text-muted-foreground">
+            Difficulty?
+          </label>
+          <div className="flex items-center gap-2 mt-2">
+            {DRILL_DIFFICULTY_OPTIONS.map((opt) => (
+              <Button
+                key={opt.value}
+                type="button"
+                size="sm"
+                variant={difficulty === opt.value ? "default" : "outline"}
+                onClick={() => setDifficulty(opt.value)}
+                disabled={pending}
+              >
+                {opt.label}
+              </Button>
+            ))}
+          </div>
+        </div>
 
         <div className="py-2">
           <label className="text-xs uppercase tracking-wider text-muted-foreground">
