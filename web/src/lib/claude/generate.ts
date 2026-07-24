@@ -207,7 +207,7 @@ export async function generateProblems(args: {
   if (avoidProblems && avoidProblems.length > 0) {
     userPromptParts.push("");
     userPromptParts.push(
-      "CRITICAL: A previous attempt produced verbatim copies of source problems. Do NOT reproduce any of the following problems — every generated problem must differ substantively in numbers AND phrasing from each entry below:"
+      "CRITICAL: Do NOT reproduce any of the following problems. These include source examples and problems already used on other recent worksheets for this lesson. Every generated problem must differ substantively in BOTH numbers AND phrasing from each entry below — a new worksheet should feel fresh, not like a reprint of an earlier one:"
     );
     for (const p of avoidProblems) {
       userPromptParts.push(`  [forbidden_id=${p.id}] ${p.problemText}`);
