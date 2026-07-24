@@ -1,6 +1,6 @@
 "use server";
 
-import { eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db/client";
 import {
@@ -25,6 +25,24 @@ import { withSpan } from "@/lib/otel/tracer";
 import { pushSpanAnnotation } from "@/lib/phoenix/annotations";
 
 const MAX_EXAMPLES_PER_CONCEPT = 3;
+
+// Repeat generations for the same lesson+difficulty were coming out nearly
+// identical: the prompt is deterministic and `thinking: adaptive` already
+// pins temperature ≈ 1, so the only lever is telling the generator what the
+// last few worksheets produced. We feed those problems in as avoidProblems
+// and cap the history so the prompt (and cost) can't grow unbounded.
+const RECENT_WORKSHEETS_TO_AVOID = 3;
+
+// Fisher-Yates. Shuffling the source examples fed to the generator adds
+// cheap per-run variance on top of the avoid list.
+function shuffled<T>(items: T[]): T[] {
+  const copy = [...items];
+  for (let i = copy.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy;
+}
 
 export type GenerateWorksheetInput = {
   lessonId: number;
@@ -194,8 +212,40 @@ export async function generateWorksheetAction(
     name: c.name,
     displayName: c.displayName,
     category: c.category,
-    exampleProblems: c.exampleProblems,
+    // Shuffle so the generator isn't anchored to the same example order on
+    // every run for this lesson.
+    exampleProblems: c.exampleProblems ? shuffled(c.exampleProblems) : c.exampleProblems,
   }));
+
+  // Problems from the last few worksheets for this same lesson+difficulty.
+  // Passed to the generator as avoidProblems so a fresh worksheet diverges
+  // from the recent ones instead of reproducing them.
+  const recentWorksheetIds = (
+    await db()
+      .select({ id: worksheets.id })
+      .from(worksheets)
+      .where(
+        and(
+          eq(worksheets.lessonId, lessonId),
+          eq(worksheets.difficultyLevel, difficulty)
+        )
+      )
+      .orderBy(desc(worksheets.id))
+      .limit(RECENT_WORKSHEETS_TO_AVOID)
+  ).map((r) => r.id);
+
+  const recentProblems: SourceProblem[] =
+    recentWorksheetIds.length > 0
+      ? (
+          await db()
+            .select({
+              id: generatedProblems.id,
+              problemText: generatedProblems.problemText,
+            })
+            .from(generatedProblems)
+            .where(inArray(generatedProblems.worksheetId, recentWorksheetIds))
+        ).map((p) => ({ id: p.id, problemText: p.problemText }))
+      : [];
 
   const genResult = await generateProblems({
     concepts: selectedConcepts,
@@ -203,6 +253,7 @@ export async function generateWorksheetAction(
     difficulty,
     lessonTitle: lesson.title,
     gradeLevel,
+    avoidProblems: recentProblems.length > 0 ? recentProblems : undefined,
     figuresOnly,
   });
 
@@ -241,7 +292,7 @@ export async function generateWorksheetAction(
       difficulty,
       lessonTitle: lesson.title,
       gradeLevel,
-      avoidProblems: lessonSourceProblems,
+      avoidProblems: [...lessonSourceProblems, ...recentProblems],
       figuresOnly,
     });
     const retryPartition = partitionByDuplicates(
