@@ -133,6 +133,11 @@ export default function WorksheetDetailPage() {
       p.verificationStatus === "verified" || p.verificationStatus === "approved"
   ).length;
   const flagged = problems.length - verified;
+  const createdDate = new Date(worksheet.createdAt).toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
 
   return (
     <div>
@@ -167,7 +172,7 @@ export default function WorksheetDetailPage() {
 
       <header className="mb-8 print:mb-4">
         <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground mb-1">
-          Worksheet #{worksheet.id}
+          Worksheet #{worksheet.id} · {createdDate}
         </p>
         <h2
           className="text-3xl tracking-tight text-foreground"

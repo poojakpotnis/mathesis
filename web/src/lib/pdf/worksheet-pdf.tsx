@@ -21,6 +21,7 @@ export type PdfProblem = {
 };
 
 export type PdfWorksheet = {
+  id: number;
   title: string;
   lessonTitle: string;
   lessonNumber: number;
@@ -141,8 +142,8 @@ export function WorksheetPdf({ worksheet }: { worksheet: PdfWorksheet }) {
         <View style={styles.header}>
           <Text style={styles.title}>{worksheet.title}</Text>
           <Text style={styles.subtitle}>
-            Lesson {worksheet.lessonNumber} · {worksheet.lessonTitle} · Generated{" "}
-            {created}
+            Worksheet #{worksheet.id} · Lesson {worksheet.lessonNumber} ·{" "}
+            {worksheet.lessonTitle} · {created}
           </Text>
         </View>
         <Text style={styles.sectionLabel}>Worksheet</Text>
@@ -169,7 +170,9 @@ export function WorksheetPdf({ worksheet }: { worksheet: PdfWorksheet }) {
       <Page size="LETTER" style={styles.page}>
         <View style={styles.header}>
           <Text style={styles.title}>{worksheet.title}</Text>
-          <Text style={styles.subtitle}>Answer key</Text>
+          <Text style={styles.subtitle}>
+            Worksheet #{worksheet.id} · Answer key · {created}
+          </Text>
         </View>
         <Text style={styles.sectionLabel}>Answer key</Text>
         {worksheet.problems.map((p) => (

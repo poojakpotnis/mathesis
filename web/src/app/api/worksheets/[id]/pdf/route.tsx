@@ -66,6 +66,7 @@ export async function GET(
   const buffer = await renderToBuffer(
     <WorksheetPdf
       worksheet={{
+        id: worksheet.id,
         title: worksheet.title,
         lessonTitle: worksheet.lessonTitle,
         lessonNumber: worksheet.lessonNumber,
