@@ -207,9 +207,11 @@ export default function WorksheetDetailPage() {
           <TabsTrigger value="score">Score</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="worksheet" className="mt-6">
+        <TabsContent value="worksheet" className="mt-6 print:mt-0">
           <Separator className="mb-6 print:hidden" />
-          <div className="space-y-4">
+          {/* Tighter vertical rhythm when printing so 15 problems fit on one
+              sheet (front + back). On-screen spacing is unchanged. */}
+          <div className="space-y-4 print:space-y-2">
             {problems.map((p) => (
               <WorksheetProblem key={p.id} problem={p} />
             ))}
@@ -683,7 +685,7 @@ function FigureSvg({ svg }: { svg: string | null }) {
 
 function WorksheetProblem({ problem }: { problem: GeneratedProblem }) {
   return (
-    <div className="border border-border rounded-lg px-5 py-4 bg-card">
+    <div className="border border-border rounded-lg px-5 py-4 bg-card print:py-2.5 print:break-inside-avoid">
       <div className="flex items-start gap-4">
         <span
           className="text-sm font-medium text-primary/70 min-w-[2.5rem] pt-0.5 tabular-nums"
@@ -696,7 +698,7 @@ function WorksheetProblem({ problem }: { problem: GeneratedProblem }) {
             {problem.problemText}
           </p>
           <FigureSvg svg={problem.figureSvg} />
-          <div className="mt-3 h-8 border-b border-dashed border-border" />
+          <div className="mt-3 h-8 border-b border-dashed border-border print:mt-2 print:h-6" />
         </div>
       </div>
     </div>
