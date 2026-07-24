@@ -142,8 +142,7 @@ export function WorksheetPdf({ worksheet }: { worksheet: PdfWorksheet }) {
         <View style={styles.header}>
           <Text style={styles.title}>{worksheet.title}</Text>
           <Text style={styles.subtitle}>
-            Worksheet #{worksheet.id} · Lesson {worksheet.lessonNumber} ·{" "}
-            {worksheet.lessonTitle} · {created}
+            Worksheet #{worksheet.id} · {created}
           </Text>
         </View>
         <Text style={styles.sectionLabel}>Worksheet</Text>
