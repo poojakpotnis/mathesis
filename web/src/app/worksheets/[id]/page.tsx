@@ -180,7 +180,7 @@ export default function WorksheetDetailPage() {
         >
           {worksheet.title}
         </h2>
-        <div className="flex items-center gap-4 mt-3 text-sm text-muted-foreground flex-wrap">
+        <div className="flex items-center gap-4 mt-3 text-sm text-muted-foreground flex-wrap print:hidden">
           <Link
             href={`/lessons/${worksheet.lessonId}`}
             className="flex items-center gap-1.5 hover:text-foreground transition-colors"
