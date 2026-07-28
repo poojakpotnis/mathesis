@@ -42,6 +42,17 @@ export type GeneratorResult = {
   problems: GeneratedProblem[];
 };
 
+// The model occasionally double-escapes non-ASCII in the SVG string it emits,
+// so a degree sign arrives as the literal 6 characters `°` instead of `°`
+// and renders verbatim in the figure (on screen and in the PDF). Decode any
+// stray `\uXXXX` back to its character. A literal backslash-u sequence has no
+// legitimate meaning inside SVG markup, so this is safe.
+export function decodeSvgEscapes(svg: string): string {
+  return svg.replace(/\\u([0-9a-fA-F]{4})/g, (_, hex) =>
+    String.fromCharCode(parseInt(hex, 16))
+  );
+}
+
 const DIFFICULTY_GUIDANCE: Record<GeneratorDifficulty, string> = {
   easier:
     "Generate problems that are slightly EASIER than the source examples — use smaller numbers, simpler fractions, or fewer steps. Useful for building confidence.",
@@ -243,6 +254,11 @@ export async function generateProblems(args: {
       }
 
       const parsed = JSON.parse(textBlock.text) as GeneratorResult;
+      for (const problem of parsed.problems) {
+        if (problem.figureSvg) {
+          problem.figureSvg = decodeSvgEscapes(problem.figureSvg);
+        }
+      }
       return {
         result: parsed,
         output: {

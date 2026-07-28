@@ -282,14 +282,11 @@ function ConceptDrillButton({ row }: { row: ConceptRow }) {
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
-  const disabled =
-    row.modalityTag === "visual_dominant" || row.sourceProblemCount === 0;
+  const disabled = row.sourceProblemCount === 0;
   const title =
-    row.modalityTag === "visual_dominant"
-      ? "Taught with diagrams — use the portal directly"
-      : row.sourceProblemCount === 0
-        ? "No source problems to drill from"
-        : `Generate a progressive worksheet on ${row.displayName}`;
+    row.sourceProblemCount === 0
+      ? "No source problems to drill from"
+      : `Generate a progressive worksheet on ${row.displayName}`;
 
   function handleGenerate() {
     if (lessonId == null) return;
