@@ -54,9 +54,9 @@ export const concepts = sqliteTable("concepts", {
     .default("claude"),
   // How this concept is taught in the imported source: text_dominant (verbal
   // problems), visual_dominant (≥80% of source problems are images — e.g.
-  // labeled trapezoid diagrams), mixed. The generator skips visual_dominant
-  // concepts; the worksheet UI surfaces their source problems as
-  // "practice from your portal" instead.
+  // labeled trapezoid diagrams), mixed. Used only as a UI label now; as of
+  // Phase 6.6 visual_dominant concepts generate like any other concept, with
+  // the generator emitting an SVG figure alongside self-contained text.
   modalityTag: text("modality_tag", {
     enum: ["text_dominant", "mixed", "visual_dominant"],
   })
@@ -88,10 +88,11 @@ export const worksheets = sqliteTable("worksheets", {
   totalProblems: integer("total_problems").notNull(),
   focusConceptIds: text("focus_concept_ids"),
   skipConceptIds: text("skip_concept_ids"),
-  // JSON-encoded number[] of concept ids dropped by the visual_dominant
-  // modality filter at generation time. NULL = pre-Phase-6.5 worksheet
-  // (filter hadn't shipped). [] = filter ran but didn't drop anything.
-  // Drives the "Practice from your portal" section on the detail page.
+  // VESTIGIAL as of Phase 6.6: the visual_dominant modality filter and the
+  // "Practice from your portal" section it drove were both removed once visual
+  // concepts started generating with figures. No code reads or writes this
+  // anymore; only Phase-6.5-era rows carry values. Kept to avoid a data-losing
+  // column drop; safe to remove in a future migration.
   skippedVisualConceptIds: text("skipped_visual_concept_ids"),
   difficultyLevel: text("difficulty_level", {
     enum: ["easier", "match", "harder", "progressive"],
