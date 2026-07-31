@@ -132,3 +132,11 @@
     @apply font-sans;
   }
 }
+
+/* Reserve a printable margin on every printed page so the worksheet header
+   (number + date) and the first problem on each page don't ride the paper's
+   top edge and clip. Kept modest to preserve the tight fit that lands 15
+   problems across one sheet, front and back. */
+@page {
+  margin: 0.5in;
+}
