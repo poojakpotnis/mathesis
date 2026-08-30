@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/lib/db/client";
 import { lessons, scrapedProblems } from "@/lib/db/schema";
@@ -48,10 +48,18 @@ export async function POST(request: NextRequest) {
   const now = new Date().toISOString();
   const imageCount = data.problems.filter((p) => p.has_image).length;
 
+  // Match on (grade, lesson_number) — the same lesson number recurs each
+  // grade, so keying on lesson_number alone would let Grade 5 Lesson 1
+  // silently overwrite Grade 4 Lesson 1. Payloads without a grade only match
+  // legacy rows that also lack one.
+  const gradeMatch =
+    data.grade_level == null
+      ? isNull(lessons.gradeLevel)
+      : eq(lessons.gradeLevel, data.grade_level);
   const existing = await db()
     .select()
     .from(lessons)
-    .where(eq(lessons.lessonNumber, data.lesson_number))
+    .where(and(eq(lessons.lessonNumber, data.lesson_number), gradeMatch))
     .limit(1);
 
   let lessonId: number;

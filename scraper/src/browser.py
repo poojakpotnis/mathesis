@@ -1,7 +1,12 @@
 from playwright.async_api import async_playwright, BrowserContext, Page
 from rich.console import Console
 
-from .config import BROWSER_STATE_DIR, RSM_BASE_URL, SELECTORS, LOGIN_TIMEOUT_SECONDS
+from .config import (
+    BROWSER_STATE_DIR,
+    HOMEWORK_LIST_URL,
+    SELECTORS,
+    LOGIN_TIMEOUT_SECONDS,
+)
 
 console = Console()
 
@@ -21,10 +26,16 @@ async def get_browser_context() -> tuple:
 
 
 async def ensure_authenticated(context: BrowserContext) -> Page:
-    """Navigate to RSM and ensure we're logged in. Prompts user if session expired."""
+    """Navigate to the homework list and ensure the session is logged in.
+
+    Prompts the user to log in in the visible browser if the session expired.
+    """
     page = context.pages[0] if context.pages else await context.new_page()
-    await page.goto(RSM_BASE_URL, wait_until="domcontentloaded")
-    await page.wait_for_load_state("networkidle", timeout=10000)
+    await page.goto(HOMEWORK_LIST_URL, wait_until="domcontentloaded")
+    try:
+        await page.wait_for_load_state("networkidle", timeout=10000)
+    except Exception:
+        pass
 
     try:
         await page.wait_for_selector(
@@ -36,7 +47,7 @@ async def ensure_authenticated(context: BrowserContext) -> Page:
         pass
 
     console.print(
-        f"[yellow]Please log in to the RSM portal in the browser window.[/yellow]"
+        "[yellow]Please log in to the RSM portal in the browser window.[/yellow]"
     )
     console.print(
         f"[yellow]Waiting up to {LOGIN_TIMEOUT_SECONDS}s for login...[/yellow]"

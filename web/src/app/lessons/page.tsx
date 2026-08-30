@@ -12,6 +12,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   BookOpen,
   Image,
@@ -129,21 +130,19 @@ export default function LessonsPage() {
       ) : lessons.length === 0 ? (
         <EmptyState />
       ) : (
-        <div className="flex flex-col gap-10">
-          {grouped.map(({ key, label, lessons: groupLessons }) => (
-            <section key={key}>
-              <div className="mb-4 flex items-baseline justify-between">
-                <h3
-                  className="text-lg text-foreground"
-                  style={{ fontFamily: "var(--font-heading)" }}
-                >
-                  {label}
-                </h3>
-                <span className="text-xs text-muted-foreground">
-                  {groupLessons.length}{" "}
-                  {groupLessons.length === 1 ? "lesson" : "lessons"}
+        <Tabs defaultValue={grouped[0].key}>
+          <TabsList>
+            {grouped.map(({ key, label, lessons: groupLessons }) => (
+              <TabsTrigger key={key} value={key}>
+                {label}
+                <span className="ml-2 text-xs text-muted-foreground tabular-nums">
+                  {groupLessons.length}
                 </span>
-              </div>
+              </TabsTrigger>
+            ))}
+          </TabsList>
+          {grouped.map(({ key, lessons: groupLessons }) => (
+            <TabsContent key={key} value={key} className="mt-6">
               <div className="grid gap-3">
                 {groupLessons.map((lesson, i) => (
                   <LessonCard
@@ -161,9 +160,9 @@ export default function LessonsPage() {
                   />
                 ))}
               </div>
-            </section>
+            </TabsContent>
           ))}
-        </div>
+        </Tabs>
       )}
 
       <Dialog

@@ -43,6 +43,13 @@
       "when": 1783035459296,
       "tag": "0005_phase_6_6_generated_problems_figure_svg",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1788068727895,
+      "tag": "0006_colorful_wrecker",
+      "breakpoints": true
     }
   ]
 }

@@ -1,24 +1,32 @@
-import { sqliteTable, text, integer, real } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, real, uniqueIndex } from "drizzle-orm/sqlite-core";
 
-export const lessons = sqliteTable("lessons", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
-  lessonNumber: integer("lesson_number").notNull().unique(),
-  title: text("title").notNull(),
-  // Grade level (1-12), parsed from the curriculum portal page heading
-  // (e.g. "Gr04_3--Lesson 34…") by the lesson importer. Nullable for
-  // backward-compat on lessons imported before this column existed; the
-  // worksheet generator throws if missing.
-  gradeLevel: integer("grade_level"),
-  scrapedAt: text("scraped_at").notNull(),
-  totalProblems: integer("total_problems").notNull(),
-  imageProblemsCount: integer("image_problems_count").notNull().default(0),
-  classificationStatus: text("classification_status", {
-    enum: ["pending", "in_progress", "completed"],
-  })
-    .notNull()
-    .default("pending"),
-  rawMetadata: text("raw_metadata"),
-});
+export const lessons = sqliteTable(
+  "lessons",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    lessonNumber: integer("lesson_number").notNull(),
+    title: text("title").notNull(),
+    gradeLevel: integer("grade_level"),
+    scrapedAt: text("scraped_at").notNull(),
+    totalProblems: integer("total_problems").notNull(),
+    imageProblemsCount: integer("image_problems_count").notNull().default(0),
+    classificationStatus: text("classification_status", {
+      enum: ["pending", "in_progress", "completed"],
+    })
+      .notNull()
+      .default("pending"),
+    rawMetadata: text("raw_metadata"),
+  },
+  (t) => ({
+    // Uniqueness is per (grade, lesson_number) — the same lesson number
+    // recurs each grade. SQLite treats NULL as distinct in unique indexes,
+    // so legacy rows with a null gradeLevel are allowed to coexist.
+    gradeLessonUnique: uniqueIndex("lessons_grade_lesson_number_unique").on(
+      t.gradeLevel,
+      t.lessonNumber,
+    ),
+  }),
+);
 
 export const scrapedProblems = sqliteTable("scraped_problems", {
   id: integer("id").primaryKey({ autoIncrement: true }),

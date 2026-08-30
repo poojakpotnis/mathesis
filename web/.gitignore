@@ -28,6 +28,12 @@
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# Local DB dumps (may contain prod data — keep out of source)
+/backups/
+*.sqlite
+*.sqlite-*
+mathesis.db
 .pnpm-debug.log*
 
 # env files (can opt-in for committing if needed)
