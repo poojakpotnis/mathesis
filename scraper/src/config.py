@@ -9,6 +9,9 @@ API_URL = os.environ.get("MATHESIS_API_URL", "http://localhost:3000")
 API_KEY = os.environ.get("MATHESIS_API_KEY", "")
 RSM_BASE_URL = os.environ.get("RSM_BASE_URL", "https://student.russianschool.com")
 HOMEWORK_LIST_URL = f"{RSM_BASE_URL}/student-portal/content/homework"
+# Class enrollment ID from the RSM classwork URL (?classId=NNN). Optional —
+# CLI --class-id wins over this. Set once in .env for batch-classwork.
+RSM_CLASS_ID = os.environ.get("RSM_CLASS_ID", "")
 
 BROWSER_STATE_DIR = Path(__file__).parent.parent / "storage" / "browser_state"
 

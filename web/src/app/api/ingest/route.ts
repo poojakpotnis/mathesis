@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/lib/db/client";
 import { lessons, scrapedProblems } from "@/lib/db/schema";
@@ -27,6 +27,13 @@ const IngestSchema = z.object({
   lesson_number: z.number(),
   title: z.string(),
   grade_level: z.number().int().min(1).max(12).nullable().optional(),
+  // 'homework' is the one-per-lesson assignment. 'classwork' is one of many
+  // per-lesson topic-scoped assignments. Homework updates lesson-level
+  // metadata; classwork leaves it alone (each classwork title is sub-topic
+  // specific and would clobber the more general homework-derived title).
+  source: z.enum(["homework", "classwork"]).default("homework"),
+  source_assignment_id: z.string().nullable().optional(),
+  source_assignment_title: z.string().nullable().optional(),
   problems: z.array(ProblemSchema),
 });
 
@@ -46,12 +53,9 @@ export async function POST(request: NextRequest) {
 
   const data = parsed.data;
   const now = new Date().toISOString();
-  const imageCount = data.problems.filter((p) => p.has_image).length;
 
   // Match on (grade, lesson_number) — the same lesson number recurs each
-  // grade, so keying on lesson_number alone would let Grade 5 Lesson 1
-  // silently overwrite Grade 4 Lesson 1. Payloads without a grade only match
-  // legacy rows that also lack one.
+  // grade. Payloads without a grade only match legacy rows that also lack one.
   const gradeMatch =
     data.grade_level == null
       ? isNull(lessons.gradeLevel)
@@ -66,26 +70,26 @@ export async function POST(request: NextRequest) {
 
   if (existing.length > 0) {
     lessonId = existing[0].id;
-    await db()
-      .update(lessons)
-      .set({
-        title: data.title,
-        // Only overwrite grade if the new payload has it. Preserves prior
-        // backfills when a re-import happens to fail grade extraction.
-        ...(data.grade_level != null
-          ? { gradeLevel: data.grade_level }
-          : {}),
-        scrapedAt: now,
-        totalProblems: data.problems.length,
-        imageProblemsCount: imageCount,
-        classificationStatus: "pending",
-      })
-      .where(eq(lessons.id, lessonId));
-
-    await db()
-      .delete(scrapedProblems)
-      .where(eq(scrapedProblems.lessonId, lessonId));
+    if (data.source === "homework") {
+      // Only homework updates the lesson-level metadata (title, grade). A
+      // classwork ingest touches only its own problems and defers to whatever
+      // homework already set.
+      await db()
+        .update(lessons)
+        .set({
+          title: data.title,
+          ...(data.grade_level != null
+            ? { gradeLevel: data.grade_level }
+            : {}),
+          scrapedAt: now,
+          classificationStatus: "pending",
+        })
+        .where(eq(lessons.id, lessonId));
+    }
   } else {
+    // New lesson — insert with whatever metadata this ingest carries. Ideally
+    // the first ingest for a lesson is homework, but a classwork-first ingest
+    // still creates the row so its problems have somewhere to live.
     const [inserted] = await db()
       .insert(lessons)
       .values({
@@ -93,11 +97,36 @@ export async function POST(request: NextRequest) {
         title: data.title,
         gradeLevel: data.grade_level ?? null,
         scrapedAt: now,
-        totalProblems: data.problems.length,
-        imageProblemsCount: imageCount,
+        totalProblems: 0, // recomputed below after the insert
+        imageProblemsCount: 0,
       })
       .returning({ id: lessons.id });
     lessonId = inserted.id;
+  }
+
+  // Wipe only the problems this ingest is replacing:
+  //   homework  → all homework problems for this lesson
+  //   classwork → only the problems for this specific classwork assignment
+  //               (leaves the lesson's homework + other classwork intact)
+  if (data.source === "homework") {
+    await db()
+      .delete(scrapedProblems)
+      .where(
+        and(
+          eq(scrapedProblems.lessonId, lessonId),
+          eq(scrapedProblems.source, "homework"),
+        ),
+      );
+  } else if (data.source_assignment_id) {
+    await db()
+      .delete(scrapedProblems)
+      .where(
+        and(
+          eq(scrapedProblems.lessonId, lessonId),
+          eq(scrapedProblems.source, "classwork"),
+          eq(scrapedProblems.sourceAssignmentId, data.source_assignment_id),
+        ),
+      );
   }
 
   if (data.problems.length > 0) {
@@ -117,13 +146,36 @@ export async function POST(request: NextRequest) {
         attemptCount: p.attempt_count ?? null,
         score: p.score ?? null,
         rawHtml: p.raw_html ?? null,
+        source: data.source,
+        sourceAssignmentId: data.source_assignment_id ?? null,
+        sourceAssignmentTitle: data.source_assignment_title ?? null,
       }))
     );
   }
 
+  // Recompute lesson-level totals across ALL sources so the UI count reflects
+  // homework + every classwork assignment for this lesson.
+  const [totals] = await db()
+    .select({
+      total: sql<number>`COUNT(*)`.as("total"),
+      images: sql<number>`SUM(CASE WHEN ${scrapedProblems.hasImage} THEN 1 ELSE 0 END)`.as("images"),
+    })
+    .from(scrapedProblems)
+    .where(eq(scrapedProblems.lessonId, lessonId));
+
+  await db()
+    .update(lessons)
+    .set({
+      totalProblems: totals.total ?? 0,
+      imageProblemsCount: totals.images ?? 0,
+    })
+    .where(eq(lessons.id, lessonId));
+
   return NextResponse.json({
     lessonId,
+    source: data.source,
     problemCount: data.problems.length,
-    imageCount,
+    imageCount: data.problems.filter((p) => p.has_image).length,
+    lessonTotals: { total: totals.total ?? 0, withImages: totals.images ?? 0 },
   });
 }

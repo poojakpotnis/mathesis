@@ -4,9 +4,15 @@ from playwright.async_api import Page
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
-from .config import HOMEWORK_LIST_URL, SELECTORS, NAV_TIMEOUT_MS
+from .config import HOMEWORK_LIST_URL, RSM_BASE_URL, SELECTORS, NAV_TIMEOUT_MS
 from .extractor import extract_problem
 from .models import LessonPayload, ScrapedProblem
+
+
+CLASSWORK_LIST_URL_TEMPLATE = (
+    RSM_BASE_URL + "/student-portal/content/classwork?classId={class_id}"
+)
+ASSIGNMENT_URL_TEMPLATE = RSM_BASE_URL + "/student-portal/content/assignment/{assignment_id}"
 
 console = Console()
 
@@ -86,15 +92,26 @@ async def scrape_assignment(
     page: Page,
     assignment_id: str,
     grade_override: int | None = None,
+    source: str = "homework",
+    source_assignment_title: str | None = None,
 ) -> LessonPayload:
-    """Open an assignment on the new portal, walk each problem, extract them."""
+    """Open an assignment on the new portal, walk each problem, extract them.
+
+    Works for both homework and classwork — the DOM is identical. `source`
+    tags the resulting payload so the ingest handler can route it correctly
+    (homework = updates lesson metadata; classwork = attaches problems
+    without overwriting the lesson's title/grade).
+    """
 
     await _navigate_to_assignment(page, assignment_id)
 
     lesson_number, title = await _extract_lesson_info(page)
     grade_level = grade_override  # new portal has no reliable page-side grade signal
     grade_str = f" (Grade {grade_override}, user-set)" if grade_override else " (grade not set)"
-    console.print(f"[green]Loaded: Lesson {lesson_number} — {title}{grade_str}[/green]")
+    source_str = f" [{source}]" if source != "homework" else ""
+    console.print(
+        f"[green]Loaded: Lesson {lesson_number} — {title}{grade_str}{source_str}[/green]"
+    )
 
     problem_labels = await _collect_problem_labels(page)
     console.print(
@@ -135,6 +152,9 @@ async def scrape_assignment(
         lesson_number=lesson_number,
         title=title,
         grade_level=grade_level,
+        source=source,
+        source_assignment_id=assignment_id if source == "classwork" else None,
+        source_assignment_title=source_assignment_title if source == "classwork" else None,
         problems=problems,
     )
 
@@ -142,9 +162,21 @@ async def scrape_assignment(
 async def _navigate_to_assignment(page: Page, assignment_id: str) -> None:
     """Get from the current page to the assignment view for `assignment_id`.
 
-    The new portal is a click-driven SPA — no visible route we can just goto().
-    We always start from the homework list and click into the target row.
+    Try direct URL navigation first (works for both homework and classwork on
+    the new portal). If the assignment page doesn't render for some reason,
+    fall back to the homework-list click path.
     """
+    direct_url = ASSIGNMENT_URL_TEMPLATE.format(assignment_id=assignment_id)
+    await page.goto(direct_url, wait_until="domcontentloaded")
+    try:
+        await page.wait_for_load_state("networkidle", timeout=NAV_TIMEOUT_MS)
+        await page.wait_for_selector(SELECTORS["problems_map_items"], timeout=10000)
+        return
+    except Exception:
+        # Direct URL didn't land on the assignment view — fall back to the
+        # homework-list click-through.
+        pass
+
     await page.goto(HOMEWORK_LIST_URL, wait_until="domcontentloaded")
     await page.wait_for_load_state("networkidle", timeout=NAV_TIMEOUT_MS)
     await page.wait_for_selector(
@@ -190,9 +222,11 @@ async def _navigate_to_assignment(page: Page, assignment_id: str) -> None:
 async def _extract_lesson_info(page: Page) -> tuple[int, str]:
     """Pull (lesson_number, title) from the assignment page header.
 
-    The header reads e.g. "Homework 1 | Natural, Whole, and Integer Numbers.
-    Consecutive Numbers". We keep the full string as the title and pull the
-    lesson number from the "Homework N" prefix.
+    Two header formats are in play:
+      - Homework: "Homework 1 | Natural, Whole, and Integer Numbers…"
+      - Classwork: "Lesson 1 | Consecutive Numbers"
+    Both encode the lesson number the same way; we strip whichever prefix
+    matches and keep the descriptive part as the title.
     """
     header_text = ""
     el = await page.query_selector(SELECTORS["assignment_title"])
@@ -202,14 +236,15 @@ async def _extract_lesson_info(page: Page) -> tuple[int, str]:
     if not header_text:
         header_text = (await page.title() or "").strip()
 
-    match = re.search(r"Homework\s+(\d+)", header_text, re.IGNORECASE)
+    match = re.search(r"(?:Homework|Lesson)\s+(\d+)", header_text, re.IGNORECASE)
     if not match:
         raise RuntimeError(
-            f"Could not find 'Homework <N>' in header: {header_text!r}"
+            f"Could not find 'Homework <N>' or 'Lesson <N>' in header: {header_text!r}"
         )
     lesson_number = int(match.group(1))
-    # Strip the "Homework N | " prefix for the title, keep the descriptive part.
-    title = re.sub(r"^\s*Homework\s+\d+\s*[|:-]\s*", "", header_text).strip()
+    title = re.sub(
+        r"^\s*(?:Homework|Lesson)\s+\d+\s*[|:-]\s*", "", header_text
+    ).strip()
     if not title:
         title = header_text
     return lesson_number, title
@@ -259,6 +294,117 @@ async def _wait_for_problem(page: Page) -> None:
         await page.wait_for_timeout(1500)
     # Give Angular a beat to swap the question text after the router settles.
     await page.wait_for_timeout(400)
+
+
+async def list_classwork(
+    page: Page, lesson_number: int, class_id: str
+) -> list[dict]:
+    """Return the classwork assignments for a given lesson number.
+
+    Each result: {lesson_number, assignment_id, title}.
+
+    Classwork list entries expose no assignment ID in the DOM — only a
+    click handler. We navigate to the list, click each entry that matches
+    "Lesson <N> | ...", capture the resulting URL to pull the assignment
+    ID out, then goto the list again for the next entry.
+    """
+    list_url = CLASSWORK_LIST_URL_TEMPLATE.format(class_id=class_id)
+
+    async def _load_list() -> list[dict]:
+        await page.goto(list_url, wait_until="domcontentloaded")
+        await page.wait_for_load_state("networkidle", timeout=NAV_TIMEOUT_MS)
+        await page.wait_for_selector(
+            "[data-qa='classwork-assignment-navigate-link']", timeout=NAV_TIMEOUT_MS
+        )
+        return await page.evaluate(
+            """(lessonNum) => {
+                const items = document.querySelectorAll(
+                    "[data-qa='classwork-assignment-navigate-link']"
+                );
+                const out = [];
+                items.forEach((el, index) => {
+                    const titleEl = el.querySelector('.classwork-title');
+                    const raw = ((titleEl || el).textContent || '').replace(/\\s+/g, ' ').trim();
+                    const m = raw.match(/^Lesson\\s+(\\d+)\\s*\\|\\s*(.+)$/i);
+                    if (m && parseInt(m[1], 10) === lessonNum) {
+                        out.push({ index, fullTitle: raw, subTitle: m[2].trim() });
+                    }
+                });
+                return out;
+            }""",
+            lesson_number,
+        )
+
+    initial = await _load_list()
+    if not initial:
+        console.print(
+            f"[yellow]No classwork found for lesson {lesson_number} at {list_url}[/yellow]"
+        )
+        return []
+
+    console.print(
+        f"[cyan]Discovering {len(initial)} classwork assignments for lesson {lesson_number}...[/cyan]"
+    )
+
+    results: list[dict] = []
+    for i, entry in enumerate(initial):
+        if i > 0:
+            # Re-load the list before each click; the SPA state doesn't
+            # survive an assignment navigation.
+            await _load_list()
+
+        # Click by INDEX into the querySelectorAll result. Title matching
+        # doesn't work: the classwork list sometimes has two entries with
+        # identical titles ("How Many Numbers?") that resolve to different
+        # assignment IDs; endsWith would collapse them.
+        clicked = await page.evaluate(
+            """({index}) => {
+                const items = document.querySelectorAll(
+                    "[data-qa='classwork-assignment-navigate-link']"
+                );
+                if (index >= items.length) return false;
+                items[index].click();
+                return true;
+            }""",
+            {"index": entry["index"]},
+        )
+        if not clicked:
+            console.print(
+                f"[yellow]Skipped classwork {entry['subTitle']!r}: couldn't click[/yellow]"
+            )
+            continue
+
+        # Wait for the URL to change to an assignment page.
+        try:
+            await page.wait_for_url(
+                re.compile(r"/student-portal/content/assignment/\d+"),
+                timeout=NAV_TIMEOUT_MS,
+            )
+        except Exception:
+            console.print(
+                f"[yellow]Skipped classwork {entry['subTitle']!r}: no URL change[/yellow]"
+            )
+            continue
+
+        m = re.search(r"/assignment/(\d+)", page.url)
+        if not m:
+            console.print(
+                f"[yellow]Skipped classwork {entry['subTitle']!r}: no assignment id in {page.url}[/yellow]"
+            )
+            continue
+
+        results.append(
+            {
+                "lesson_number": lesson_number,
+                "assignment_id": m.group(1),
+                "title": entry["subTitle"],
+            }
+        )
+        console.print(
+            f"  [dim]→[/dim] [cyan]{m.group(1)}[/cyan]  {entry['subTitle']!r}"
+        )
+
+    return results
 
 
 async def discover_selectors(page: Page) -> None:

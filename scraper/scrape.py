@@ -7,8 +7,14 @@ from rich.console import Console
 from rich.table import Table
 
 from src.browser import get_browser_context, ensure_authenticated
-from src.navigator import scrape_assignment, discover_selectors, list_assignments
+from src.navigator import (
+    scrape_assignment,
+    discover_selectors,
+    list_assignments,
+    list_classwork,
+)
 from src.api_client import MathesisClient
+from src.config import RSM_CLASS_ID
 
 ASSIGNMENTS_JSON = Path(__file__).parent / "storage" / "assignments.json"
 
@@ -327,6 +333,126 @@ def batch_ingest_cmd(
             skip_existing=not no_skip_existing,
             dry_run=dry,
             grade_override=grade,
+        )
+    )
+
+
+async def _batch_classwork(
+    lesson_number: int,
+    class_id: str,
+    grade_override: int | None,
+    dry_run: bool,
+) -> None:
+    pw, context = await get_browser_context()
+    client = None if dry_run else MathesisClient()
+    successes: list[str] = []
+    failures: list[tuple[str, str]] = []
+    try:
+        page = await ensure_authenticated(context)
+        entries = await list_classwork(page, lesson_number, class_id)
+        if not entries:
+            console.print(
+                f"[yellow]No classwork found for lesson {lesson_number}.[/yellow]"
+            )
+            return
+
+        for idx, entry in enumerate(entries, start=1):
+            console.rule(
+                f"[bold cyan]({idx}/{len(entries)}) Lesson {lesson_number} "
+                f"classwork — {entry['title']!r} "
+                f"(assignment {entry['assignment_id']})[/bold cyan]"
+            )
+            try:
+                payload = await scrape_assignment(
+                    page,
+                    entry["assignment_id"],
+                    grade_override=grade_override,
+                    source="classwork",
+                    source_assignment_title=entry["title"],
+                )
+                if dry_run:
+                    _print_dry_run(payload)
+                else:
+                    client.push_lesson(payload)
+                successes.append(entry["assignment_id"])
+            except Exception as e:
+                console.print(
+                    f"[red]Classwork {entry['assignment_id']} "
+                    f"({entry['title']!r}) failed: {e}[/red]"
+                )
+                failures.append((entry["assignment_id"], str(e)))
+    finally:
+        if client is not None:
+            client.close()
+        await context.close()
+        await pw.stop()
+
+    console.rule("[bold]Classwork batch summary[/bold]")
+    console.print(f"[green]Success ({len(successes)}):[/green] {successes}")
+    if failures:
+        console.print(f"[red]Failures ({len(failures)}):[/red]")
+        for aid, err in failures:
+            console.print(f"  {aid}: {err}")
+
+
+@cli.command("batch-classwork")
+@click.option(
+    "--lesson",
+    "lesson_number",
+    type=int,
+    required=True,
+    help="Lesson number whose classwork assignments should be ingested.",
+)
+@click.option(
+    "--class-id",
+    "class_id",
+    type=str,
+    default=None,
+    help=(
+        "RSM classId (from the classwork URL: ?classId=NNNN). "
+        "Defaults to $RSM_CLASS_ID in .env."
+    ),
+)
+@click.option(
+    "--grade",
+    "grade",
+    type=click.IntRange(1, 12),
+    default=None,
+    help="Grade level (1-12). Wins over auto-detection. Prompted if omitted.",
+)
+@click.option(
+    "--auto-detect-grade",
+    is_flag=True,
+    default=False,
+    help="Skip the grade prompt; rely on the page detector only (unreliable).",
+)
+@click.option("--dry", is_flag=True, help="Ingest but don't push to server.")
+def batch_classwork_cmd(
+    lesson_number: int,
+    class_id: str | None,
+    grade: int | None,
+    auto_detect_grade: bool,
+    dry: bool,
+):
+    """Ingest every classwork assignment attached to a lesson.
+
+    Each classwork lands as a batch of problems under the same lesson_id as
+    the homework, tagged source='classwork' + source_assignment_id.
+    """
+    resolved_class_id = class_id or RSM_CLASS_ID
+    if not resolved_class_id:
+        console.print(
+            "[red]Missing class id. Pass --class-id NNNN or set RSM_CLASS_ID in .env.[/red]"
+        )
+        raise SystemExit(1)
+    if grade is None and not auto_detect_grade:
+        grade = _prompt_grade()
+    asyncio.run(
+        _batch_classwork(
+            lesson_number=lesson_number,
+            class_id=resolved_class_id,
+            grade_override=grade,
+            dry_run=dry,
         )
     )
 

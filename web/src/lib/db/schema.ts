@@ -48,6 +48,16 @@ export const scrapedProblems = sqliteTable("scraped_problems", {
   attemptCount: integer("attempt_count"),
   score: real("score"),
   rawHtml: text("raw_html"),
+  // Where the problem came from on the portal. 'homework' = the one-per-lesson
+  // homework assignment; 'classwork' = one of the many per-lesson classwork
+  // assignments. All problems for the same lesson share a lesson_id regardless
+  // of source. source_assignment_id captures the portal's assignment ID for
+  // classwork problems so a re-ingest of one classwork doesn't wipe others.
+  source: text("source", { enum: ["homework", "classwork"] })
+    .notNull()
+    .default("homework"),
+  sourceAssignmentId: text("source_assignment_id"),
+  sourceAssignmentTitle: text("source_assignment_title"),
 });
 
 export const concepts = sqliteTable("concepts", {

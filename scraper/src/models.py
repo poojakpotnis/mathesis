@@ -21,4 +21,10 @@ class LessonPayload(BaseModel):
     lesson_number: int
     title: str
     grade_level: int | None = None
+    # 'homework' = the one-per-lesson homework; 'classwork' = one of many
+    # topic-scoped classwork assignments. Homework updates lesson-level
+    # metadata; classwork attaches problems without touching title/grade.
+    source: str = "homework"
+    source_assignment_id: str | None = None
+    source_assignment_title: str | None = None
     problems: list[ScrapedProblem]
