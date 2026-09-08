@@ -110,13 +110,17 @@ export function QuickGenerateButton({
             No classified lessons yet. Import and classify a lesson first.
           </p>
         ) : gradeKeys.length <= 1 ? (
-          <div className="space-y-1.5 py-2 max-h-96 overflow-y-auto">
+          <div className="space-y-1.5 py-2 max-h-96 overflow-y-auto min-w-0">
             {eligible.map((l) => (
               <LessonRow key={l.id} lesson={l} onPick={pickLesson} />
             ))}
           </div>
         ) : (
-          <Tabs defaultValue={defaultTab}>
+          // min-w-0 is load-bearing: DialogContent is a grid, and grid items
+          // default to min-width: min-content. Grade-5 lesson titles are long
+          // enough that without this, the row's intrinsic width blows the
+          // whole dialog past sm:max-w-md.
+          <Tabs defaultValue={defaultTab} className="min-w-0">
             <TabsList>
               {gradeKeys.map((g) => (
                 <TabsTrigger key={gradeTabValue(g)} value={gradeTabValue(g)}>
@@ -128,9 +132,9 @@ export function QuickGenerateButton({
               <TabsContent
                 key={gradeTabValue(g)}
                 value={gradeTabValue(g)}
-                className="mt-3"
+                className="mt-3 min-w-0"
               >
-                <div className="space-y-1.5 max-h-96 overflow-y-auto">
+                <div className="space-y-1.5 max-h-96 overflow-y-auto min-w-0">
                   {byGrade.get(g)!.map((l) => (
                     <LessonRow key={l.id} lesson={l} onPick={pickLesson} />
                   ))}
